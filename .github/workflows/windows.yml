@@ -1,0 +1,85 @@
+name: Windows build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check Go sources
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+      - name: Build and check the Windows executable
+        id: build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          $version = "dev-$($env:GITHUB_SHA.Substring(0, 12))"
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME
+            if ($version -cnotmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$') {
+              throw 'Expected a version tag such as v1.2.3 or v1.2.3-rc.1.'
+            }
+          }
+          $name = 'simcity4-hd-windows-amd64.exe'
+          go build -trimpath -ldflags "-X main.version=$version" -o $name .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actual = & ".\$name" --version
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $version) {
+            throw "Expected embedded version $version, got $actual."
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $name).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "$name.sha256"), "$hash  $name`n")
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simcity4-hd-${{ steps.build.outputs.version }}-windows-amd64
+          path: |
+            simcity4-hd-windows-amd64.exe
+            simcity4-hd-windows-amd64.exe.sha256
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: simcity4-hd-${{ needs.build.outputs.version }}-windows-amd64
+          path: release
+      - name: Publish verified Windows build
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.version }}
+        run: |
+          sha256sum --check simcity4-hd-windows-amd64.exe.sha256
+          flags=(--verify-tag --generate-notes)
+          if [[ "${RELEASE_TAG%%+*}" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "${flags[@]}" \
+            simcity4-hd-windows-amd64.exe simcity4-hd-windows-amd64.exe.sha256
