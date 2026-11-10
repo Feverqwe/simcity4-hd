@@ -69,6 +69,6 @@ Preview the launch arguments with `& $builder launch $testGame $profile`. When r
 
 ## Preview status
 
-The ×4 packages are a development preview. Texture dimensions and package structure can be checked without launching the game. The ×4 interface still needs an in-game check for atlas clipping and button interactions at 3840 × 2160.
+The ×4 packages are a development preview. The reference build was tested in-game at 3840 × 2160. In Audio Options, the last playlist track may remain clipped at the end of the scroll range. Minor artifacts can appear at the ends of the City Opinion Polls meters.
 
 City and region zoom are stock. The launcher requests 4K by default.

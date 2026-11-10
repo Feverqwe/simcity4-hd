@@ -142,6 +142,10 @@ func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]
 		}
 		// The picker copies portraits at screen density into fixed-size cells.
 		if scale == 4 {
+			art, err = protectPortraitOutline(data, art, true)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", id, err)
+			}
 			art, err = projectUIArtwork(data, art, []int{36}, true)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", id, err)

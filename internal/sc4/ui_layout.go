@@ -80,11 +80,16 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 			line = strings.Replace(line, " vscrollbar=", " font=GenBodyLight vscrollbar=", 1)
 		}
 		if instance == 0x8a5ab1cd && strings.Contains(line, "clsid=GZWinTreeView ") {
+			rowHeight := "rowheight=28"
+			if textureScale == 4 {
+				rowHeight = "rowheight=36"
+			}
 			line = strings.NewReplacer("icongutter=3", "icongutter=6",
-				"rowheight=16", "rowheight=28", "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
+				"rowheight=16", rowHeight, "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
 		}
-		if textureScale == 4 && w.group == 0xe74a40be &&
-			strings.Contains(line, " id=0x2c16c9cb ") && strings.Contains(line, "image={46a006b0,53244588}") {
+		driveMinimize := textureScale == 4 && w.group == 0xe74a40be &&
+			strings.Contains(line, " id=0x2c16c9cb ") && strings.Contains(line, "image={46a006b0,53244588}")
+		if driveMinimize {
 			// The Minimize atlas has 21×19 cells, but the stock button is
 			// only 18×16. Give the full frame room at the same anchor.
 			area := driveButtonArea.FindStringSubmatch(line)
@@ -108,7 +113,9 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 		queryClose := w.group == 0xe74a40b8 && frames == 4 && strings.Contains(line, ` caption="Close" `)
 		edgePanel := strings.Contains(line, "clsid=GZWinBMP ") && strings.Contains(line, "edgeimage=yes")
 		queryWealth := w.group == 0xe74a40b8 && strings.Contains(line, " id=0x00001053 ")
-		nativeControl := !densityControl || queryClose || queryWealth || edgePanel || budgetLedgerButton(instance, line)
+		// The News ticker stretches its hover border with the stock button painter.
+		newsHover := instance == 0x2a2aed99 && strings.Contains(line, " id=0xca2aedcd ")
+		nativeControl := !densityControl || queryClose || queryWealth || edgePanel || newsHover || budgetLedgerButton(instance, line)
 		var imageErr error
 		densityImage := false
 		line = layoutImage.ReplaceAllStringFunc(line, func(reference string) string {
@@ -123,6 +130,13 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				return reference
 			}
 			source := resourceID{uiImage, uint32(group), uint32(id)}
+			if textureScale == 4 && (instance == 0x898897de || instance == 0x2bc90671) &&
+				strings.Contains(line, " id=0x8a517556 ") &&
+				source == (resourceID{uiImage, catalogFrameGroup, mayorRatingImage}) {
+				// The city replaces this bitmap at runtime. Both images
+				// use the stock draw path and the same screen-size source rect.
+				return fmt.Sprintf("image={%08x,%08x}", mayorRatingGroup, source.instance)
+			}
 			project := textureScale == 4 && (nativeControl || frames == 4 && nativeButtonAtlas(source))
 			atlas := layoutAtlas{source: source, frames: frames, project: project}
 			target, exists := w.variants[atlas]
@@ -160,6 +174,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 		if imageErr != nil {
 			return fmt.Errorf("%s: %w", layoutID(instance), imageErr)
 		}
+
 		line = scaleLayoutGeometry(line, layoutGeometry, nil)
 		if densityImage && textureScale == 4 {
 			line = scaleLayoutGeometry(line, layoutSourceRect, nil)
@@ -170,6 +185,11 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				return font
 			}
 			name := strings.ToLower(value)
+			if textureScale == 4 && name == "legend" &&
+				(instance == 0xea287193 || instance == 0x2bc9060f || instance == 0x0b72f276) {
+				// The runtime legend font already scales to fit the map column.
+				return font
+			}
 			alias := "HD" + name
 			if !w.aliases[name] {
 				w.fonts = append(w.fonts, fontAlias{name, alias})
@@ -208,9 +228,13 @@ func nativeButtonAtlas(id resourceID) bool {
 		return false
 	}
 	switch id.instance {
-	case 0x144161eb, 0xcc1a735d: // Shared dialog and keycap frames.
+	case 0x144161eb, 0x144161f5, 0x144161f6, 0xe2b66db8, 0x4bc3a5ae, 0xcc1a735d:
+		// Shared dialog and keycap frames use stock edge slicing.
 		return true
-	case 0x140155cb, 0x140155cc, 0x144161ea, 0x2c201cb0, 0x2c201cb1, 0x2c201cb2:
+	case 0x13d14c20, 0x13d14c30, 0x13d14c40, 0x13d14c50:
+		// Pausing or changing speed repaints these buffered buttons.
+		return true
+	case 0x140155cb, 0x140155cc, 0x144161ea, 0x53244588, 0x2c201cb0, 0x2c201cb1, 0x2c201cb2:
 		// The game also assigns these atlases to controls it creates or updates.
 		return true
 	}

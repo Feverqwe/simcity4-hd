@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/png"
 	"io"
 	"os"
@@ -15,12 +17,25 @@ import (
 )
 
 const (
-	budgetSliderGroup    = 0xe74a40c6
-	budgetSliderImage    = 0x46a006a7
-	previewGroup         = 0x4c06f888
-	previewHDGroup       = 0xe74a40c0
-	disasterBackground   = 0x8a2564a2
-	disasterBackgroundHD = 0xe74a40c3
+	importIconGroup       = 0xe74a40c7
+	budgetRowArtGroup     = 0xe74a40c8
+	budgetDetailsImage    = 0x140155b7
+	budgetCloseImage      = 0x140155b4
+	budgetCloseHD         = 0x14416260
+	budgetCheckboxImage   = 0x144161ea
+	playlistCheckboxImage = 0x14416244
+	budgetSliderGroup     = 0xe74a40c6
+	budgetSliderImage     = 0x46a006a7
+	mayorRatingGroup      = 0xe74a40c5
+	mayorRatingImage      = 0x14015549
+	regionRatingImage     = 0x14416327
+	newsMarkerGroup       = 0xe74a40c4
+	newsMarkerFirst       = 0x14416250
+	newsMarkerCount       = 16
+	previewGroup          = 0x4c06f888
+	previewHDGroup        = 0xe74a40c0
+	disasterBackground    = 0x8a2564a2
+	disasterBackgroundHD  = 0xe74a40c3
 )
 
 type uiArtwork struct {
@@ -39,8 +54,15 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 	}
 	widths := slices.Repeat([]int{config.Width / spec.frames}, spec.frames)
 	data, _, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), spec.source, original, widths, 4, a.infer)
-	if err != nil || a.scale == 4 && !spec.project {
-		return data, err
+	if err != nil {
+		return nil, err
+	}
+	if a.scale == 4 && !spec.project {
+		if spec.source.group == catalogFrameGroup &&
+			(spec.source.instance == 0x13f1524c || spec.source.instance == 0x13f15266) {
+			return protectPortraitOutline(original, data, false)
+		}
+		return data, nil
 	}
 	originalAlpha := spec.source.group == previewGroup ||
 		spec.source == (resourceID{uiImage, catalogFrameGroup, disasterBackground})
@@ -80,11 +102,77 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		return nil, err
 	}
 	if art.scale == 4 {
-		slider, err := buildBudgetSliderImage(stock, art)
+		markers, err := buildNewsMarkers(stock, art)
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, slider)
+		entries = append(entries, markers...)
+		for _, instance := range []uint32{mayorRatingImage, regionRatingImage} {
+			entry, err := buildRatingImage(stock, art, instance)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
+		}
+		// Runtime budget and playlist controls use atlases at screen density.
+		for _, atlas := range []struct {
+			source, target, group uint32
+			frames                int
+		}{
+			{budgetSliderImage, budgetSliderImage, budgetSliderGroup, 4},
+			{budgetCheckboxImage, budgetCheckboxImage, budgetRowArtGroup, 8},
+			{playlistCheckboxImage, playlistCheckboxImage, budgetRowArtGroup, 8},
+			{budgetDetailsImage, budgetDetailsImage, budgetRowArtGroup, 4},
+			{budgetCloseImage, budgetCloseHD, budgetRowArtGroup, 4},
+		} {
+			source := resourceID{uiImage, catalogFrameGroup, atlas.source}
+			target := resourceID{uiImage, atlas.group, atlas.target}
+			if _, exists := stock.index[target]; exists {
+				return nil, fmt.Errorf("runtime image key collision: %s", target)
+			}
+			original, err := stock.read(source)
+			if err != nil {
+				return nil, err
+			}
+			data, err := art.upscale(layoutAtlas{source: source, frames: atlas.frames, project: true}, original)
+			if err != nil {
+				return nil, fmt.Errorf("runtime image %s: %w", source, err)
+			}
+			if atlas.source == playlistCheckboxImage {
+				imageData, err := decodeRGBA(data)
+				if err != nil {
+					return nil, err
+				}
+				if imageData.Bounds() != image.Rect(0, 0, 256, 32) {
+					return nil, fmt.Errorf("unexpected playlist atlas bounds: %s", imageData.Bounds())
+				}
+				// The playlist shows 28-pixel rows. Trim two pixels of
+				// padding above and below each 32-pixel checkbox cell.
+				cropped := image.NewNRGBA(image.Rect(0, 0, 256, 28))
+				draw.Draw(cropped, cropped.Bounds(), imageData, image.Pt(0, 2), draw.Src)
+				data, err = encodeRGBA(cropped)
+				if err != nil {
+					return nil, err
+				}
+			}
+			entries = append(entries, resource{target, data})
+		}
+		for instance := uint32(0x1441624a); instance <= 0x1441624c; instance++ {
+			source := resourceID{uiImage, catalogFrameGroup, instance}
+			target := resourceID{uiImage, importIconGroup, instance}
+			if _, exists := stock.index[target]; exists {
+				return nil, fmt.Errorf("import icon key collision: %s", target)
+			}
+			original, err := stock.read(source)
+			if err != nil {
+				return nil, err
+			}
+			data, err := art.upscale(layoutAtlas{source: source, frames: 1, project: true}, original)
+			if err != nil {
+				return nil, fmt.Errorf("import icon %s: %w", source, err)
+			}
+			entries = append(entries, resource{target, data})
+		}
 		config, err = addLayoutFontAliases(config, []fontAlias{
 			{"BdgtPopupHeader", "HDBdgtPopupHeader"},
 			{"BdgtPopupBody", "HDBdgtPopupBody"},
@@ -111,27 +199,34 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	}
 	entries = append(entries, resource{resourceID{uiImage, 0xe74a40bd, restoreID.instance}, data})
 
-	arrows, err := stock.read(resourceID{uiImage, catalogFrameGroup, 0x14015584})
-	if err != nil {
-		return nil, err
-	}
-	source, err := decodeRGBA(arrows)
-	if err != nil {
-		return nil, err
-	}
-	// The polls control uses atlas dimensions as the displayed size.
-	const arrowScale = 2
-	enlarged := image.NewNRGBA(image.Rect(0, 0, arrowScale*source.Rect.Dx(), arrowScale*source.Rect.Dy()))
-	for y := range enlarged.Rect.Dy() {
-		for x := range enlarged.Rect.Dx() {
-			enlarged.SetNRGBA(x, y, source.NRGBAAt(x/arrowScale, y/arrowScale))
+	// The polls renderer samples discrete score rows and draws the arrows
+	// at native size. Keep each arrow in its original color.
+	fillID := resourceID{uiImage, catalogFrameGroup, 0x14015580}
+	arrowID := resourceID{uiImage, catalogFrameGroup, 0x14015584}
+	fillTarget := resourceID{uiImage, catalogFrameGroup, 0x2bd260ac}
+	arrowTarget := resourceID{uiImage, catalogFrameGroup, 0x2bd260ab}
+	for _, target := range []resourceID{fillTarget, arrowTarget} {
+		if _, exists := stock.index[target]; exists {
+			return nil, fmt.Errorf("polls image key collision: %s", target)
 		}
 	}
-	data, err = encodeRGBA(enlarged)
+	fill, err := stock.read(fillID)
 	if err != nil {
 		return nil, err
 	}
-	entries = append(entries, resource{resourceID{uiImage, catalogFrameGroup, 0x2bd260ab}, data})
+	fill, err = resizeUIExact(fill, 2, 1)
+	if err != nil {
+		return nil, fmt.Errorf("polls fill: %w", err)
+	}
+	arrows, err := stock.read(arrowID)
+	if err != nil {
+		return nil, err
+	}
+	arrows, err = art.upscalePollArrows(arrowID, arrows)
+	if err != nil {
+		return nil, fmt.Errorf("polls arrows: %w", err)
+	}
+	entries = append(entries, resource{fillTarget, fill}, resource{arrowTarget, arrows})
 
 	var previews []uint32
 	for id := range stock.index {
@@ -162,18 +257,198 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	return entries, nil
 }
 
-func buildBudgetSliderImage(stock uiStock, art uiArtwork) (resource, error) {
-	source := resourceID{uiImage, catalogFrameGroup, budgetSliderImage}
-	target := resourceID{uiImage, budgetSliderGroup, budgetSliderImage}
+// Keep the original score rows and double the width painted into the HUD.
+func buildRatingImage(stock uiStock, art uiArtwork, instance uint32) (resource, error) {
+	id := resourceID{uiImage, catalogFrameGroup, instance}
+	target := resourceID{uiImage, mayorRatingGroup, instance}
 	if _, exists := stock.index[target]; exists {
-		return resource{}, fmt.Errorf("budget slider image key collision: %s", target)
+		return resource{}, fmt.Errorf("mayor rating image key collision: %s", target)
 	}
-	original, err := stock.read(source)
+	data, err := stock.read(id)
 	if err != nil {
 		return resource{}, err
 	}
-	data, err := art.upscale(layoutAtlas{source: source, frames: 4, project: true}, original)
+	source, err := decodeRGBA(data)
+	if err != nil {
+		return resource{}, err
+	}
+	if source.Bounds() != image.Rect(0, 0, 102, 26) {
+		return resource{}, fmt.Errorf("unexpected mayor rating image bounds: %s", source.Bounds())
+	}
+	data, err = art.upscaleScoreRows(id, data)
 	return resource{target, data}, err
+}
+
+// Use inferred coverage with the stock cursor colors and transparent key.
+func (a uiArtwork) upscalePollArrows(id resourceID, original []byte) ([]byte, error) {
+	source, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	if source.Bounds() != image.Rect(0, 0, 42, 9) {
+		return nil, fmt.Errorf("unexpected poll arrow atlas bounds: %s", source.Bounds())
+	}
+	projected, err := a.upscale(layoutAtlas{source: id, frames: 6, project: true}, original)
+	if err != nil {
+		return nil, err
+	}
+	result, err := decodeRGBA(projected)
+	if err != nil {
+		return nil, err
+	}
+	for cell := range 6 {
+		ink := source.NRGBAAt(7*cell+3, 4)
+		if ink.A != 255 || ink == uiColorKey {
+			return nil, fmt.Errorf("unexpected poll arrow color in cell %d", cell)
+		}
+		for y := range 18 {
+			for x := 14 * cell; x < 14*(cell+1); x++ {
+				pixel := color.NRGBA{R: 255, B: 255}
+				if alpha := result.NRGBAAt(x, y).A; alpha >= 16 {
+					pixel = ink
+					pixel.A = alpha
+				}
+				result.SetNRGBA(x, y, pixel)
+			}
+		}
+	}
+	return encodeRGBA(result)
+}
+
+// Keep the original silhouette and limit color changes along its outline.
+func protectPortraitOutline(original, enlarged []byte, picker bool) ([]byte, error) {
+	source, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	result, err := decodeRGBA(enlarged)
+	if err != nil {
+		return nil, err
+	}
+	for y := range result.Rect.Dy() {
+		for x := range result.Rect.Dx() {
+			sx, sy := x/4, y/4
+			stock := source.NRGBAAt(sx, sy)
+			pixel := stock
+			if stock.A != 0 && stock != uiColorKey {
+				inferred := result.NRGBAAt(x, y)
+				insideFrame := !picker || (sx >= 4 && sx < source.Rect.Dx()-4 &&
+					sy >= 4 && sy < source.Rect.Dy()-4)
+				if insideFrame && stock.A == 255 && source.NRGBAAt(sx-1, sy).A == 255 &&
+					source.NRGBAAt(sx+1, sy).A == 255 && source.NRGBAAt(sx, sy-1).A == 255 &&
+					source.NRGBAAt(sx, sy+1).A == 255 {
+					pixel = inferred
+					pixel.A = 255
+				} else {
+					pixel.R = byte((3*int(stock.R) + int(inferred.R) + 2) / 4)
+					pixel.G = byte((3*int(stock.G) + int(inferred.G) + 2) / 4)
+					pixel.B = byte((3*int(stock.B) + int(inferred.B) + 2) / 4)
+				}
+			}
+			result.SetNRGBA(x, y, pixel)
+		}
+	}
+	return encodeRGBA(result)
+}
+
+func resizeUIExact(original []byte, scaleX, scaleY int) ([]byte, error) {
+	source, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	result := image.NewNRGBA(image.Rect(0, 0, scaleX*source.Rect.Dx(), scaleY*source.Rect.Dy()))
+	for y := range result.Rect.Dy() {
+		for x := range result.Rect.Dx() {
+			result.SetNRGBA(x, y, source.NRGBAAt(x/scaleX, y/scaleY))
+		}
+	}
+	return encodeRGBA(result)
+}
+
+// Score rows represent discrete values. Sample within each inferred row
+// and keep the original transparency and color key at the new width.
+func (a uiArtwork) upscaleScoreRows(id resourceID, original []byte) ([]byte, error) {
+	source, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	width, height := source.Rect.Dx(), source.Rect.Dy()
+	_, atlas, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), id, original, []int{width}, 4, a.infer)
+	if err != nil {
+		return nil, err
+	}
+	result := image.NewNRGBA(image.Rect(0, 0, 2*width, height))
+	for y := range height {
+		for x := range result.Rect.Dx() {
+			stockPixel := source.NRGBAAt(x/2, y)
+			pixel := stockPixel
+			if stockPixel != uiColorKey && stockPixel.A != 0 {
+				pixel = atlas.NRGBAAt(2*x+1, 4*y+2)
+				pixel.A = stockPixel.A
+			}
+			result.SetNRGBA(x, y, pixel)
+		}
+	}
+	return encodeRGBA(result)
+}
+
+// The News HTML lays out the icon as an 18×18 inline image. Keep that
+// box and its click position while lowering the artwork to the HD baseline.
+func buildNewsMarkers(stock uiStock, art uiArtwork) ([]resource, error) {
+	const offsetY = 3
+	entries := make([]resource, 0, newsMarkerCount)
+	for i := uint32(0); i < newsMarkerCount; i++ {
+		id := resourceID{uiImage, catalogFrameGroup, newsMarkerFirst + i}
+		target := resourceID{uiImage, newsMarkerGroup, id.instance}
+		if _, exists := stock.index[target]; exists {
+			return nil, fmt.Errorf("News marker key collision: %s", target)
+		}
+		data, err := stock.read(id)
+		if err != nil {
+			return nil, err
+		}
+		source, err := decodeRGBA(data)
+		if err != nil {
+			return nil, err
+		}
+		if source.Bounds() != image.Rect(0, 0, 18, 18) {
+			return nil, fmt.Errorf("unexpected News marker bounds: %s", id)
+		}
+		background := source.NRGBAAt(0, 0)
+		for y := 18 - offsetY; y < 18; y++ {
+			for x := range 18 {
+				if source.NRGBAAt(x, y) != background {
+					return nil, fmt.Errorf("News marker has artwork in the bottom margin: %s", id)
+				}
+			}
+		}
+		_, atlas, err := cachedUIAtlas(filepath.Join(art.cache, "ui-atlases-x4"), id, data, []int{18}, 4, art.infer)
+		if err != nil {
+			return nil, fmt.Errorf("News marker %s: %w", id, err)
+		}
+		keyed := hasColorKey(source)
+		projected := projectAtlasCell(projectAtlasCell(atlas, keyed), keyed)
+		for y := range 18 - offsetY {
+			for x := range 18 {
+				stockPixel := source.NRGBAAt(x, y)
+				pixel := stockPixel
+				if stockPixel != background && stockPixel != uiColorKey && stockPixel.A != 0 {
+					pixel = projected.NRGBAAt(x, y)
+					pixel.A = stockPixel.A
+				}
+				source.SetNRGBA(x, y, pixel)
+			}
+		}
+		result := image.NewNRGBA(source.Bounds())
+		draw.Draw(result, image.Rect(0, 0, 18, offsetY), image.NewUniform(background), image.Point{}, draw.Src)
+		draw.Draw(result, image.Rect(0, offsetY, 18, 18), source, image.Point{}, draw.Src)
+		data, err = encodeRGBA(result)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, resource{target, data})
+	}
+	return entries, nil
 }
 
 func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {

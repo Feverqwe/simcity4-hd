@@ -131,6 +131,7 @@ func regionEntries(stock uiStock, config string, textureScale int, art func(layo
 		{"350,0,804,139", "350,0,867,139"}, {"867,0,982,76", "867,0,1097,152"},
 		{"193,12,273,72", "188,12,348,132"}, {"353,12,433,72", "353,12,513,132"},
 		{"25,15,85,61", "50,30,170,122"}, {"110,0,130,20", "220,0,260,40"},
+		{"212,35,285,77", "212,35,358,119"}, {"0,0,50,30", "0,0,100,60"},
 	} {
 		old, replacement := "area=("+pair[0]+")", "area=("+pair[1]+")"
 		if strings.Count(text, old) != 1 {
@@ -138,13 +139,15 @@ func regionEntries(stock uiStock, config string, textureScale int, art func(layo
 		}
 		text = strings.Replace(text, old, replacement, 1)
 	}
-	for _, instance := range []uint32{0x14416302, 0x14416303, 0x14416304} {
+	for _, instance := range []uint32{0x14416302, 0x14416303, 0x14416304, 0x14416106} {
 		reference := fmt.Sprintf("{%08x,%08x}", catalogFrameGroup, instance)
 		if strings.Count(text, reference) != 1 {
 			return nil, "", fmt.Errorf("region button atlas %s missing or ambiguous", reference)
 		}
 	}
-	text, err = swapArt(text, []regionAtlas{{0x14416302, 4}, {0x14416303, 4}, {0x14416304, 4}}, 0xe74a40c2, 0)
+	text = strings.Replace(text, "image={46a006b0,14416106} imagerect=(0,0,50,30)",
+		"image={46a006b0,14416106} imagerect=(0,0,100,60)", 1)
+	text, err = swapArt(text, []regionAtlas{{0x14416302, 4}, {0x14416303, 4}, {0x14416304, 4}, {0x14416106, 1}}, 0xe74a40c2, 0)
 	if err != nil {
 		return nil, "", err
 	}

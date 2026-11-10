@@ -3,6 +3,8 @@ package sc4
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/color"
 	"slices"
 	"strings"
 )
@@ -128,6 +130,12 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureSc
 			if err != nil {
 				return nil, "", fmt.Errorf("%s: %w", asset.atlas.source, err)
 			}
+			if asset.target == (resourceID{uiImage, 0xe74a40d6, 0xbb97ac30}) {
+				data, err = roundNewsHoverAtlas(data)
+				if err != nil {
+					return nil, "", err
+				}
+			}
 			joinID, artScale := asset.target, textureScale
 			if asset.atlas.project {
 				joinID.group -= 0x20
@@ -189,4 +197,44 @@ func preserveMayorAlpha(stock, enlarged []byte, scale int) ([]byte, error) {
 		}
 	}
 	return encodeRGBA(art)
+}
+
+// Match the fixed ticker hit rectangle and its rounded panel. Use a
+// native-sized outline so the stock painter cannot stretch the corners.
+func roundNewsHoverAtlas(data []byte) ([]byte, error) {
+	source, err := decodeRGBA(data)
+	if err != nil {
+		return nil, err
+	}
+	const cells, stockCell = 4, 12
+	const width, height, radius = 1380, 74, 12
+	if source.Bounds() != image.Rect(0, 0, cells*stockCell, stockCell) {
+		return nil, fmt.Errorf("unexpected News hover atlas bounds: %s", source.Bounds())
+	}
+	atlas := image.NewNRGBA(image.Rect(0, 0, cells*width, height))
+	for cell := range cells {
+		alpha := source.NRGBAAt(cell*stockCell+stockCell/2, 0).A
+		if alpha == 0 {
+			continue
+		}
+		for y := range height {
+			for x := range width {
+				dx := min(x, width-1-x)
+				dy := min(y, height-1-y)
+				if insideNewsCorner(dx, dy, radius) &&
+					!insideNewsCorner(dx-2, dy-2, radius-2) {
+					atlas.SetNRGBA(cell*width+x, y, color.NRGBA{255, 255, 255, alpha})
+				}
+			}
+		}
+	}
+	return encodeRGBA(atlas)
+}
+
+func insideNewsCorner(x, y, radius int) bool {
+	if x < 0 || y < 0 {
+		return false
+	}
+	dx, dy := max(0, 2*radius-1-2*x), max(0, 2*radius-1-2*y)
+	return dx*dx+dy*dy <= 4*radius*radius
 }

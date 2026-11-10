@@ -24,6 +24,9 @@ var budgetTreeScale []byte
 //go:embed patchsrc/ui_budget_slider.i386
 var budgetSliderArt []byte
 
+//go:embed patchsrc/ui_import_node_font.i386
+var importNodeFont []byte
+
 type instructionPatch struct {
 	rva                   int
 	original, replacement []byte
@@ -102,6 +105,7 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		// Runtime HUD controls use image IDs and sizes outside the layouts.
 		instruction(0x3ee037, "c7442440b006a046c744244488452453", "c7442440bd404ae7c744244488452453"),
 		instruction(0x3ee15a, "83e81c506a0c", "83e838506a18"),
+		instruction(0x3ed4ce, "c744243880550114", "c7442438ac60d22b"),
 		instruction(0x3ed4f3, "c744243884550114", "c7442438ab60d22b"),
 		instruction(0x3bf2db, "83c303", "83c306"),
 		instruction(0x37019c, "6888f8064c", "68c0404ae7"),
@@ -128,11 +132,85 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		stub, budgetSlider = appendStub(stub, stubRVA, 0x379508, hexBytes("8bf08b168bce"), budgetSliderArt)
 		patches = append(patches, budgetSlider)
 
+		// The city loads its live rating sprite during initialization and
+		// update. The region launcher loads its separate tiled sprite.
+		for _, site := range []int{0x3e8522, 0x3ed229, 0x3b5184} {
+			patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
+				little.AppendUint32(nil, mayorRatingGroup)})
+		}
+
+		// Both Ordinances ledgers share a dedicated checkbox constructor.
+		patches = append(patches, instructionPatch{0x37b7c1,
+			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
+
+		// Both Audio Options playlist sources use the native checkbox painter.
+		for _, site := range []int{0xf4b84, 0xf4e43} {
+			patches = append(patches, instructionPatch{site,
+				little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
+		}
+
+		// The checkbox frame grew around the old top-left anchor.
+		// Center it in the ledger row before the dialog doubles its positions.
+		var checkboxPosition instructionPatch
+		stub, checkboxPosition = appendStub(stub, stubRVA, 0x37b90c,
+			hexBytes("8b1750518bcf"), hexBytes("8b1783e80550518bcf"))
+		patches = append(patches, checkboxPosition)
+
+		// Open Details and the enlarged empty-dialog close button use
+		// projected atlases. Preserve the stock group for other callers.
+		var budgetDetailsArt instructionPatch
+		stub, budgetDetailsArt = appendStub(stub, stubRVA, 0x37b970,
+			hexBytes("5068b006a046"),
+			hexBytes("503db755011474073d60624114750768c8404ae7eb0568b006a046"))
+		patches = append(patches, budgetDetailsArt,
+			// The active-state frame is wider than the glyph. Leave room
+			// for the label that starts at X=48 in department rows.
+			instruction(0x388abf, "6a12", "6a0e"),
+			instruction(0x388f94, "6a12", "6a0e"))
+
+		// The import dialog loads its folder and city icons directly.
+		for _, site := range []int{0x379135, 0x379182, 0x3791e5} {
+			patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
+				little.AppendUint32(nil, importIconGroup)})
+		}
+
+		// The tree's root font does not apply to dynamically created rows.
+		importNodeFontRVA := stubRVA + len(stub)
+		stub = append(stub, importNodeFont...)
+		for _, node := range []struct {
+			site int
+			next string
+		}{
+			{0x378e3f, "8b168bd88b4748"}, // Folder node.
+			{0x378fc3, "8b168be88b4758"}, // City node.
+		} {
+			body := relativeInstruction(0xe8, stubRVA+len(stub), importNodeFontRVA)
+			original := hexBytes(node.next)
+			var nodeFont instructionPatch
+			stub, nodeFont = appendStub(stub, stubRVA, node.site, original, append(body, original...))
+			patches = append(patches, nodeFont)
+		}
+
+		// Data Views positions the legend again when switching overlays.
+		// Keep each layout's swatch column and align captions beside it.
+		var mapLegendSwatch instructionPatch
+		stub, mapLegendSwatch = appendStub(stub, stubRVA, 0x3a081a,
+			hexBytes("ff9210010000"),
+			// GetArea, then copy the current left and right into the new rectangle.
+			hexBytes("ff92c00000008b10899424980000008b5008899424a00000008bce8b16ff9210010000"))
+		patches = append(patches, mapLegendSwatch,
+			instruction(0x3a07d4, "8d573d", "8d577a"),
+			instruction(0x3a080b, "8d44383d", "8d44387a"),
+			instruction(0x3a08f4, "8d4f18", "8d4f30"),
+			instruction(0x3a08fd, "c744243c16010000", "c744243c2c020000"),
+			instruction(0x3a090b, "0516010000", "052c020000"),
+			instruction(0x3a0922, "8d4c3818", "8d4c3830"))
+
 		// The graph window builds its plot rectangle in screen pixels.
 		// Leave room for the enlarged ticks, title, and line-chart legend.
 		var graphLegend instructionPatch
 		stub, graphLegend = appendStub(stub, stubRVA, 0x36dd4b,
-			hexBytes("83e81483ea6e"), hexBytes("83e82081eab4000000"))
+			hexBytes("83e81483ea6e"), hexBytes("83e82081ead4000000"))
 		patches = append(patches, graphLegend,
 			instruction(0x36d834, "83e814", "83e820"),
 			instruction(0x36d848, "c78424980000002d000000", "c784249800000046000000"),
@@ -144,12 +222,12 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		// direct-drawn swatches, while other charts create bitmap controls.
 		var graphLegendStart, graphSwatches, graphLabels instructionPatch
 		stub, graphLegendStart = appendStub(stub, stubRVA, 0x36e0f5,
-			hexBytes("83eb6a83f802"), hexBytes("81ebaa00000083f802"))
+			hexBytes("83eb6a83f802"), hexBytes("81ebca00000083f802"))
 		stub, graphSwatches = appendStub(stub, stubRVA, 0x36e159,
 			hexBytes("8d4aa4518b4c24205183c294"),
-			hexBytes("8d8a64ffffff518b4c24205181c254ffffff"))
+			hexBytes("8d8a44ffffff518b4c24205181c234ffffff"))
 		stub, graphLabels = appendStub(stub, stubRVA, 0x36e1f1,
-			hexBytes("8d8c24f800000083eb5a"), hexBytes("8d8c24f800000081eb9a000000"))
+			hexBytes("8d8c24f800000083eb5a"), hexBytes("8d8c24f800000081ebba000000"))
 		patches = append(patches, graphLegendStart, graphSwatches, graphLabels)
 
 		// Draw a second scanline for data series, clamped to the top of
@@ -173,15 +251,33 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 			instruction(0x37c27e, "6808d385ea", "685e3d6e95"), // HDBdgtPopupBody
 			instruction(0x37c260, "6a056a0a", "6a0a6a14"),
 			instruction(0x37c286, "6a196a0f", "6a326a1e"),
-			instruction(0x37c2ba, "6a0b680d010000", "6a126839020000"))
+			instruction(0x37c2b5, "68b4550114", "6860624114"),
+			instruction(0x37c2ba, "6a0b680d010000", "6a12681a020000"))
 
-		// Moving a funding slider reapplies the fonts to the existing
-		// row labels and amounts. Use the same aliases as initial layout.
-		patches = append(patches,
-			instruction(0x38a3a0, "6806d385ea", "68e3272344"),
-			instruction(0x38a479, "6806d385ea", "68e3272344"),
-			instruction(0x38a9ed, "6805d385ea", "68ca29131d"),
-			instruction(0x38aa9d, "6805d385ea", "68ca29131d"))
+		// The funding refresh recomputes the marker's X in stock units.
+		// Its Y already comes from the resized control.
+		var budgetMarker instructionPatch
+		stub, budgetMarker = appendStub(stub, stubRVA, 0x38a729,
+			hexBytes("508bcfff93e0000000"), hexBytes("8d0400508bcfff93e0000000"))
+		patches = append(patches, budgetMarker)
+
+		// The department income table creates its labels and amounts
+		// with the stock ledger fonts, including on a row rebuild.
+		for _, site := range []int{0x388517, 0x3885a0} {
+			patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
+		}
+		for _, site := range []int{0x3885f9, 0x38873d, 0x38879b, 0x3887eb} {
+			patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
+		}
+
+		// Funding refresh reapplies fonts in separate income and expense
+		// loops. Keep both branches consistent with the initial layout.
+		for _, site := range []int{0x389cb2, 0x389d91, 0x38a3a0, 0x38a479} {
+			patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
+		}
+		for _, site := range []int{0x389ecf, 0x389f71, 0x38a9ed, 0x38aa9d} {
+			patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
+		}
 
 		// Resize the completed department windows after their controls
 		// have been constructed. Empty sections return earlier.
@@ -265,6 +361,18 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		}
 		offset := bytes.Index([]byte(template.text), []byte("SIZE=3")) + len("SIZE=")
 		data[template.offset+offset] = template.size
+	}
+
+	if textureScale == 4 {
+		for i := 0; i < newsMarkerCount; i++ {
+			at := 0x6837f4 - i*0x2c
+			original := fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, catalogFrameGroup, newsMarkerFirst+i)
+			marker := data[at : at+len(original)]
+			if !bytes.Equal(marker, []byte(original)) {
+				return nil, fmt.Errorf("unexpected News marker HTML template at offset %#x", at)
+			}
+			copy(marker, fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, newsMarkerGroup, newsMarkerFirst+i))
+		}
 	}
 
 	if textureScale == 4 {
