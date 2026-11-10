@@ -10,11 +10,12 @@ import (
 )
 
 var (
+	driveButtonArea  = regexp.MustCompile(`\barea=\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\)`)
 	legacyRoot       = regexp.MustCompile(`(?i)<LEGACY\b(?:[^">]|"[^"]*")*>`)
 	layoutSourceRect = regexp.MustCompile(`\b(imagerect)=\((-?\d+(?:,-?\d+)+)\)`)
 	layoutImage      = regexp.MustCompile(`\bimage=\{([a-fA-F0-9]+),\s*([a-fA-F0-9]+)\}`)
 	layoutGeometry   = regexp.MustCompile(`\b(area|imagerect|gutters|tipoffsets)=\((-?\d+(?:,-?\d+)+)\)`)
-	layoutFont       = regexp.MustCompile(`\bfont=([A-Za-z][A-Za-z0-9_]*)`)
+	layoutFont       = regexp.MustCompile(`\b(?:font|rootfont)=([A-Za-z][A-Za-z0-9_]*)`)
 	advisorRoot      = regexp.MustCompile(`(?m)^(<LEGACY [^\r\n]*? id=0x(?:6a15c767|aa15ef06|2a1d96b1) area=)\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\)`)
 )
 
@@ -23,8 +24,9 @@ var uiFontID = resourceID{0, 0x4a87bfe8, 0x2a87bffc}
 func layoutID(instance uint32) resourceID { return resourceID{0, 0x96a006b0, instance} }
 
 type layoutAtlas struct {
-	source resourceID
-	frames int
+	source  resourceID
+	frames  int
+	project bool
 }
 
 type layoutAsset struct {
@@ -51,12 +53,21 @@ func newWindowLayouts(group uint32) *windowLayouts {
 	}
 }
 
-func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID) (bool, error)) error {
+func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPNG func(resourceID) (bool, error)) error {
 	var result bytes.Buffer
 	for _, line := range strings.SplitAfter(string(data), "\n") {
 		if !strings.HasPrefix(strings.TrimLeft(line, " \t\r\v\f"), "<LEGACY ") {
 			result.WriteString(line)
 			continue
+		}
+		if instance == 0xc973b411 && textureScale == 4 && strings.Contains(line, " id=0x99887766 ") {
+			// The Query frame is 37 pixels wide. Give its backing surface the
+			// full frame width, as for the Route Query button below.
+			const old = "area=(95,85,131,106)"
+			if strings.Count(line, old) != 1 {
+				return fmt.Errorf("unexpected upper help button geometry")
+			}
+			line = strings.Replace(line, old, "area=(95,85,132,106)", 1)
 		}
 		if instance == 0xc973b411 && strings.Contains(line, " id=0x8b96b73e ") {
 			const old = "area=(95,106,131,127)"
@@ -65,6 +76,25 @@ func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID)
 			}
 			line = strings.Replace(line, old, "area=(95,106,132,129)", 1)
 		}
+		if instance == 0x4a8cc5ea && strings.Contains(line, " id=0x8a8cc775 ") {
+			line = strings.Replace(line, " vscrollbar=", " font=GenBodyLight vscrollbar=", 1)
+		}
+		if instance == 0x8a5ab1cd && strings.Contains(line, "clsid=GZWinTreeView ") {
+			line = strings.NewReplacer("icongutter=3", "icongutter=6",
+				"rowheight=16", "rowheight=28", "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
+		}
+		if textureScale == 4 && w.group == 0xe74a40be &&
+			strings.Contains(line, " id=0x2c16c9cb ") && strings.Contains(line, "image={46a006b0,53244588}") {
+			// The Minimize atlas has 21×19 cells, but the stock button is
+			// only 18×16. Give the full frame room at the same anchor.
+			area := driveButtonArea.FindStringSubmatch(line)
+			if len(area) != 5 || layoutNumber(area[3])-layoutNumber(area[1]) != 18 ||
+				layoutNumber(area[4])-layoutNumber(area[2]) != 16 {
+				return fmt.Errorf("%s: unexpected Free Drive Minimize geometry", layoutID(instance))
+			}
+			line = strings.Replace(line, area[0], fmt.Sprintf("area=(%s,%s,%d,%d)",
+				area[1], area[2], layoutNumber(area[1])+21, layoutNumber(area[2])+19), 1)
+		}
 		frames := 1
 		if strings.Contains(line, "clsid=GZWinBtn ") {
 			frames = 4
@@ -72,8 +102,15 @@ func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID)
 		if strings.Contains(line, "style=radiocheck") {
 			frames = 8
 		}
+		// Only buttons and bitmap controls have a verified density adapter.
+		// Keep native-rendered artwork in a separate resource group.
+		densityControl := strings.Contains(line, "clsid=GZWinBtn ") || strings.Contains(line, "clsid=GZWinBMP ")
+		queryClose := w.group == 0xe74a40b8 && frames == 4 && strings.Contains(line, ` caption="Close" `)
+		edgePanel := strings.Contains(line, "clsid=GZWinBMP ") && strings.Contains(line, "edgeimage=yes")
+		queryWealth := w.group == 0xe74a40b8 && strings.Contains(line, " id=0x00001053 ")
+		nativeControl := !densityControl || queryClose || queryWealth || edgePanel || budgetLedgerButton(instance, line)
 		var imageErr error
-		replaced := false
+		densityImage := false
 		line = layoutImage.ReplaceAllStringFunc(line, func(reference string) string {
 			if imageErr != nil {
 				return reference
@@ -86,7 +123,8 @@ func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID)
 				return reference
 			}
 			source := resourceID{uiImage, uint32(group), uint32(id)}
-			atlas := layoutAtlas{source, frames}
+			project := textureScale == 4 && (nativeControl || frames == 4 && nativeButtonAtlas(source))
+			atlas := layoutAtlas{source: source, frames: frames, project: project}
 			target, exists := w.variants[atlas]
 			if !exists {
 				if !w.sources[source] {
@@ -107,29 +145,37 @@ func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID)
 				if w.sources[source] {
 					label += ":" + strconv.Itoa(frames)
 				}
-				target = resourceID{uiImage, w.group, crc32.ChecksumIEEE([]byte(label))}
+				targetGroup := w.group
+				if project {
+					targetGroup += 0x20
+				}
+				target = resourceID{uiImage, targetGroup, crc32.ChecksumIEEE([]byte(label))}
 				w.variants[atlas] = target
 				w.sources[source] = true
 				w.assets = append(w.assets, layoutAsset{atlas, target})
 			}
-			replaced = true
+			densityImage = !project
 			return fmt.Sprintf("image={%08x,%08x}", target.group, target.instance)
 		})
 		if imageErr != nil {
 			return fmt.Errorf("%s: %w", layoutID(instance), imageErr)
 		}
 		line = scaleLayoutGeometry(line, layoutGeometry, nil)
-		if replaced {
+		if densityImage && textureScale == 4 {
 			line = scaleLayoutGeometry(line, layoutSourceRect, nil)
 		}
 		line = layoutFont.ReplaceAllStringFunc(line, func(font string) string {
-			name := strings.ToLower(strings.TrimPrefix(font, "font="))
+			attribute, value, _ := strings.Cut(font, "=")
+			if attribute == "rootfont" && instance != 0x8a5ab1cd {
+				return font
+			}
+			name := strings.ToLower(value)
 			alias := "HD" + name
 			if !w.aliases[name] {
 				w.fonts = append(w.fonts, fontAlias{name, alias})
 				w.aliases[name] = true
 			}
-			return "font=" + alias
+			return attribute + "=" + alias
 		})
 		result.WriteString(line)
 	}
@@ -145,6 +191,30 @@ func (w *windowLayouts) add(instance uint32, data []byte, isPNG func(resourceID)
 	}
 	w.layouts = append(w.layouts, resource{layoutID(instance), []byte(output)})
 	return nil
+}
+
+// The budget uses image-backed buttons to paint the ledger rows and
+// balance summary. Those frames need the stock paint path at screen density.
+func budgetLedgerButton(instance uint32, line string) bool {
+	if instance != 0xcbc3c2b9 && instance != 0xaa3acdfe {
+		return false
+	}
+	return strings.Contains(line, "clsid=GZWinBtn ") &&
+		(strings.Contains(line, " id=0xaa3ac40") || strings.Contains(line, " id=0xaa3ac50"))
+}
+
+func nativeButtonAtlas(id resourceID) bool {
+	if id.group != catalogFrameGroup {
+		return false
+	}
+	switch id.instance {
+	case 0x144161eb, 0xcc1a735d: // Shared dialog and keycap frames.
+		return true
+	case 0x140155cb, 0x140155cc, 0x144161ea, 0x2c201cb0, 0x2c201cb1, 0x2c201cb2:
+		// The game also assigns these atlases to controls it creates or updates.
+		return true
+	}
+	return false
 }
 
 func dynamicLayoutImage(instance uint32, id resourceID) bool {
@@ -222,6 +292,7 @@ func scaleRuntimeFonts(config, stock string, snapshotHelp bool) (string, error) 
 		"NewsHeader", "NewsBody", "NewsBodyUnderline", "AdvisorNewsTitle", "AdvisorName",
 		"AdvisorHeadline", "AdvisorNewsBody", "MessageHeader", "MessageBody",
 		"MessageBodyUnderline", "ToolTip", "ToolTipTitle",
+		"GraphInsetHeader", "GraphInsetLegend", "ChartLabel", "ChartTickText", "Legend",
 	}
 	if snapshotHelp {
 		names = append(names, "SnapshotTaker")
@@ -233,7 +304,14 @@ func scaleRuntimeFonts(config, stock string, snapshotHelp bool) (string, error) 
 			return "", fmt.Errorf("expected one stock runtime font %q", name)
 		}
 		m := matches[0]
-		line := m[1] + strconv.Itoa(2*layoutNumber(m[2])) + m[3]
+		size := 2 * layoutNumber(m[2])
+		switch name {
+		case "GraphInsetLegend", "ChartTickText", "Legend",
+			"MessageHeader", "MessageBody", "MessageBodyUnderline", "NewsBody", "NewsBodyUnderline":
+			// Constrained legends, ticks, and long messages use a smaller size.
+			size = (3*layoutNumber(m[2]) + 1) / 2
+		}
+		line := m[1] + strconv.Itoa(size) + m[3]
 		if strings.Contains(config, line) {
 			continue
 		}

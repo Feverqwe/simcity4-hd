@@ -15,6 +15,8 @@ import (
 )
 
 const (
+	budgetSliderGroup    = 0xe74a40c6
+	budgetSliderImage    = 0x46a006a7
 	previewGroup         = 0x4c06f888
 	previewHDGroup       = 0xe74a40c0
 	disasterBackground   = 0x8a2564a2
@@ -23,6 +25,7 @@ const (
 
 type uiArtwork struct {
 	cache string
+	scale int
 	infer func([]byte) ([]byte, error)
 }
 
@@ -35,8 +38,13 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid UI atlas frame geometry")
 	}
 	widths := slices.Repeat([]int{config.Width / spec.frames}, spec.frames)
-	data, _, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), spec.source, original, widths, a.infer)
-	return data, err
+	data, _, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), spec.source, original, widths, 4, a.infer)
+	if err != nil || a.scale == 4 && !spec.project {
+		return data, err
+	}
+	originalAlpha := spec.source.group == previewGroup ||
+		spec.source == (resourceID{uiImage, catalogFrameGroup, disasterBackground})
+	return projectUIArtworkWithAlpha(original, data, widths, originalAlpha, false)
 }
 
 func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
@@ -58,11 +66,11 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, config, err := regionEntries(stock, string(font), art.upscale)
+	entries, config, err := regionEntries(stock, string(font), art.scale, art.upscale)
 	if err != nil {
 		return nil, err
 	}
-	windows, config, err := buildWindowEntries(stock, config, false, art.upscale)
+	windows, config, err := buildWindowEntries(stock, config, false, art.scale, art.upscale)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +79,33 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	if err != nil {
 		return nil, err
 	}
+	if art.scale == 4 {
+		slider, err := buildBudgetSliderImage(stock, art)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, slider)
+		config, err = addLayoutFontAliases(config, []fontAlias{
+			{"BdgtPopupHeader", "HDBdgtPopupHeader"},
+			{"BdgtPopupBody", "HDBdgtPopupBody"},
+			{"GenHeader", "HDgenheader"},
+			{"GenButton", "HDgenbutton"},
+			{"BdgtLedgerHeader", "HDbdgtledgerheader"},
+			{"BdgtLedgerLineLite", "HDbdgtledgerlinelite"},
+			{"BdgtLedgerLineLiteUnder", "HDbdgtledgerlineliteunder"},
+			{"BdgtLedgerLineHeavy", "HDbdgtledgerlineheavy"},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	entries = append(entries, resource{uiFontID, []byte(config)})
 	restoreID := resourceID{uiImage, catalogFrameGroup, 0x53244588}
 	data, err := stock.read(restoreID)
 	if err != nil {
 		return nil, err
 	}
-	data, err = art.upscale(layoutAtlas{restoreID, 4}, data)
+	data, err = art.upscale(layoutAtlas{source: restoreID, frames: 4, project: true}, data)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +119,12 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	enlarged := image.NewNRGBA(image.Rect(0, 0, 4*source.Rect.Dx(), 4*source.Rect.Dy()))
+	// The polls control uses atlas dimensions as the displayed size.
+	const arrowScale = 2
+	enlarged := image.NewNRGBA(image.Rect(0, 0, arrowScale*source.Rect.Dx(), arrowScale*source.Rect.Dy()))
 	for y := range enlarged.Rect.Dy() {
 		for x := range enlarged.Rect.Dx() {
-			enlarged.SetNRGBA(x, y, source.NRGBAAt(x/4, y/4))
+			enlarged.SetNRGBA(x, y, source.NRGBAAt(x/arrowScale, y/arrowScale))
 		}
 	}
 	data, err = encodeRGBA(enlarged)
@@ -123,13 +153,27 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		if err != nil {
 			return nil, err
 		}
-		data, err := art.upscale(layoutAtlas{id, 1}, original)
+		data, err := art.upscale(layoutAtlas{source: id, frames: 1, project: true}, original)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
 		entries = append(entries, resource{target, data})
 	}
 	return entries, nil
+}
+
+func buildBudgetSliderImage(stock uiStock, art uiArtwork) (resource, error) {
+	source := resourceID{uiImage, catalogFrameGroup, budgetSliderImage}
+	target := resourceID{uiImage, budgetSliderGroup, budgetSliderImage}
+	if _, exists := stock.index[target]; exists {
+		return resource{}, fmt.Errorf("budget slider image key collision: %s", target)
+	}
+	original, err := stock.read(source)
+	if err != nil {
+		return resource{}, err
+	}
+	data, err := art.upscale(layoutAtlas{source: source, frames: 4, project: true}, original)
+	return resource{target, data}, err
 }
 
 func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {
@@ -145,7 +189,8 @@ func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {
 	if !bytes.Equal(first, second) {
 		return nil, errors.New("stock Disasters background copies differ")
 	}
-	data, err := art.upscale(layoutAtlas{id, 1}, first)
+	// The runtime Disasters panel shares the catalog's native copy path.
+	data, err := art.upscale(layoutAtlas{source: id, frames: 1, project: true}, first)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +207,7 @@ type uiPackage struct {
 
 func runBuildUI(args []string) (result error) {
 	flags := flag.NewFlagSet("ui", flag.ContinueOnError)
+	textureScale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
 	distro := flags.String("wsl-distro", "", "WSL distribution for inference")
 	python := flags.String("wsl-python", "python3", "Python interpreter in WSL")
 	weights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
@@ -171,13 +217,17 @@ func runBuildUI(args []string) (result error) {
 	if flags.NArg() != 3 {
 		return errors.New("usage: simcity4-hd ui [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
 	}
+	if *textureScale != 2 && *textureScale != 4 {
+		return errors.New("texture scale must be 2 or 4")
+	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	// Validate the executable fingerprint before doing potentially lengthy inference.
 	executable, err := os.ReadFile(filepath.Join(game, "Apps", "SimCity 4.exe"))
 	if err != nil {
 		return err
 	}
-	if err := patchUIExecutable(executable); err != nil {
+	executable, err = patchUIExecutable(executable, *textureScale)
+	if err != nil {
 		return err
 	}
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
@@ -190,6 +240,7 @@ func runBuildUI(args []string) (result error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var worker *inferenceWorker
+	inferenceScale := 4
 	closeWorker := func() error {
 		if worker == nil {
 			return nil
@@ -210,7 +261,7 @@ func runBuildUI(args []string) (result error) {
 			if worker == nil {
 				var err error
 				worker, err = startInference(ctx, inferenceConfig{
-					distro: *distro, python: *python, weights: *weights, scale: 4, tile: 64, overlap: 16,
+					distro: *distro, python: *python, weights: *weights, scale: inferenceScale, tile: 64, overlap: 16,
 				}, os.Stderr)
 				if err != nil {
 					return nil, err
@@ -225,16 +276,18 @@ func runBuildUI(args []string) (result error) {
 	}
 	defer stock.file.Close()
 	stockUI := indexUIStock(stock)
-	art := uiArtwork{cache, infer}
+	art := uiArtwork{cache, *textureScale, infer}
 	hud, err := buildHUD(game, stockUI, art)
 	if err != nil {
 		return fmt.Errorf("build HUD: %w", err)
 	}
-	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, "ui-atlases-x4"), infer)
+	// The runtime catalog shares native copy routines with other windows.
+	// Project its x4 art to the doubled frame geometry those routines expect.
+	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, "ui-atlases-x4"), 2, infer)
 	if err != nil {
 		return fmt.Errorf("build catalog sheets: %w", err)
 	}
-	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, "ui-catalog-chrome"), infer)
+	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, "ui-catalog-chrome"), 2, infer)
 	if err != nil {
 		return fmt.Errorf("build catalog frames: %w", err)
 	}
@@ -242,26 +295,42 @@ func runBuildUI(args []string) (result error) {
 	if err != nil {
 		return fmt.Errorf("build Disasters background: %w", err)
 	}
-	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-x4"), infer)
+	if *textureScale == 2 {
+		if err := closeWorker(); err != nil {
+			return err
+		}
+		inferenceScale = 2
+	}
+	suffix := fmt.Sprintf("x%d", *textureScale)
+	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-"+suffix), *textureScale, infer)
 	if err != nil {
 		return fmt.Errorf("build My Sims portraits: %w", err)
 	}
 	if err := closeWorker(); err != nil {
 		return err
 	}
-	tutorial, err := tutorialEntries(filepath.Join(game, "SimCityLocale.DAT"))
+	locale := filepath.Join(game, "SimCityLocale.DAT")
+	tutorial, err := tutorialEntries(locale)
 	if err != nil {
 		return err
 	}
-	return publishUI(output, executable, []uiPackage{
-		{"city-hud-x4.dat", hud},
-		{"catalog-square-x4.dat", square},
-		{"catalog-bridge-x4.dat", bridge},
-		{"catalog-chrome-x4.dat", chrome},
-		{"disasters-background-x4.dat", disasters},
-		{"mysim-portraits-x4.dat", portraits},
+	credits, err := creditsEntries(locale)
+	if err != nil {
+		return err
+	}
+	packages := []uiPackage{
+		{"city-hud-" + suffix + ".dat", hud},
+		{"catalog-square-" + suffix + ".dat", square},
+		{"catalog-bridge-" + suffix + ".dat", bridge},
+		{"catalog-chrome-" + suffix + ".dat", chrome},
+		{"disasters-background-" + suffix + ".dat", disasters},
+		{"mysim-portraits-" + suffix + ".dat", portraits},
 		{"tutorial-text-size-7.dat", tutorial},
-	})
+	}
+	if len(credits) != 0 {
+		packages = append(packages, uiPackage{"credits-text.dat", credits})
+	}
+	return publishUI(output, executable, packages)
 }
 
 func publishUI(output string, executable []byte, packages []uiPackage) error {

@@ -21,16 +21,16 @@ var chromeInstances = []uint32{
 	0x14215ed0, 0x14215ed1, 0x14215ed2, 0x14215ed3, 0x14215ed4, 0x14215ed5, 0x14215edd,
 }
 
-func cachedUIAtlas(cache string, id resourceID, stock []byte, widths []int,
+func cachedUIAtlas(cache string, id resourceID, stock []byte, widths []int, scale int,
 	infer func([]byte) ([]byte, error)) ([]byte, *image.NRGBA, error) {
 	source, err := decodeRGBA(stock)
 	if err != nil {
 		return nil, nil, err
 	}
-	path := uiCachePath(cache, id, stock, len(widths), hasColorKey(source))
+	path := uiCachePath(cache, id, stock, len(widths), scale, hasColorKey(source))
 	art, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) && infer != nil {
-		atlas, inferenceErr := inferAtlasCells(source, widths, 4, infer)
+		atlas, inferenceErr := inferAtlasCells(source, widths, scale, infer)
 		if inferenceErr != nil {
 			return nil, nil, inferenceErr
 		}
@@ -49,13 +49,13 @@ func cachedUIAtlas(cache string, id resourceID, stock []byte, widths []int,
 	if err != nil {
 		return nil, nil, err
 	}
-	if atlas.Rect.Dx() != 4*source.Rect.Dx() || atlas.Rect.Dy() != 4*source.Rect.Dy() {
+	if atlas.Rect.Dx() != scale*source.Rect.Dx() || atlas.Rect.Dy() != scale*source.Rect.Dy() {
 		return nil, nil, fmt.Errorf("%s: invalid prepared atlas dimensions", path)
 	}
 	return art, atlas, nil
 }
 
-func catalogChromeEntries(stock *archive, cache string, infer func([]byte) ([]byte, error)) ([]resource, error) {
+func catalogChromeEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error)) ([]resource, error) {
 	widths := []int{80, 53, 53, 53, 53}
 	entries := make([]resource, 0, len(chromeInstances))
 	for _, instance := range chromeInstances {
@@ -72,16 +72,22 @@ func catalogChromeEntries(stock *archive, cache string, infer func([]byte) ([]by
 		if err != nil || config.Width != 292 || config.Height != 53 {
 			return nil, fmt.Errorf("%s: invalid stock catalog frame", id)
 		}
-		data, _, err = cachedUIAtlas(cache, id, data, widths, infer)
+		art, _, err := cachedUIAtlas(cache, id, data, widths, 4, infer)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
-		entries = append(entries, resource{id, data})
+		if scale == 2 {
+			art, err = projectUIArtwork(data, art, widths, true)
+			if err != nil {
+				return nil, err
+			}
+		}
+		entries = append(entries, resource{id, art})
 	}
 	return entries, nil
 }
 
-func mySimPortraitEntries(stock *archive, cache string, infer func([]byte) ([]byte, error)) ([]resource, error) {
+func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error)) ([]resource, error) {
 	pairs := make(map[uint32]map[uint32][]byte)
 	for _, r := range stock.records {
 		id := r.id
@@ -117,7 +123,7 @@ func mySimPortraitEntries(stock *archive, cache string, infer func([]byte) ([]by
 			return nil, fmt.Errorf("%08x: stock My Sim portrait pair differs", instance)
 		}
 		id := resourceID{uiImage, catalogFrameGroup, instance}
-		art, atlas, err := cachedUIAtlas(cache, id, data, []int{36}, infer)
+		art, atlas, err := cachedUIAtlas(cache, id, data, []int{36}, scale, infer)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
@@ -128,10 +134,17 @@ func mySimPortraitEntries(stock *archive, cache string, infer func([]byte) ([]by
 		if hasColorKey(source) {
 			for y := range atlas.Rect.Dy() {
 				for x := range atlas.Rect.Dx() {
-					if (source.NRGBAAt(x/4, y/4) == uiColorKey) != (atlas.NRGBAAt(x, y) == uiColorKey) {
+					if (source.NRGBAAt(x/scale, y/scale) == uiColorKey) != (atlas.NRGBAAt(x, y) == uiColorKey) {
 						return nil, fmt.Errorf("%s: My Sim portrait transparency key changed", id)
 					}
 				}
+			}
+		}
+		// The picker copies portraits at screen density into fixed-size cells.
+		if scale == 4 {
+			art, err = projectUIArtwork(data, art, []int{36}, true)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", id, err)
 			}
 		}
 		entries = append(entries, resource{resourceID{uiImage, mySimPortraitGroup, instance}, art}, resource{id, art})
@@ -186,7 +199,7 @@ func runUIAssets(name string, args []string) (result error) {
 			return worker.upscalePNG(png)
 		}
 	}
-	entries, err := build(stock, flags.Arg(1), infer)
+	entries, err := build(stock, flags.Arg(1), 4, infer)
 	if err != nil {
 		return err
 	}

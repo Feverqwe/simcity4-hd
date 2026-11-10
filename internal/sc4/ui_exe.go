@@ -3,8 +3,10 @@ package sc4
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +14,15 @@ import (
 )
 
 const stockEXEHash = "f9b059d29940d1a28c89e6d6a7ab147e9762cd03134cdbaf02ba0e0142e1a176"
+
+// Assemble with llvm-mc -triple=i386 -filetype=obj, then extract .text
+// with llvm-objcopy -O binary -j .text.
+//
+//go:embed patchsrc/ui_budget_tree.i386
+var budgetTreeScale []byte
+
+//go:embed patchsrc/ui_budget_slider.i386
+var budgetSliderArt []byte
 
 type instructionPatch struct {
 	rva                   int
@@ -45,26 +56,10 @@ func appendStub(stub []byte, base, site int, original, body []byte) ([]byte, ins
 	return stub, instructionPatch{site, original, redirect}
 }
 
-// catalogBlitBody doubles the source rectangle on the stack while reusing the
-// same destination and clip flags. The game keeps its existing button bounds.
-func catalogBlitBody(original []byte) []byte {
-	dispatch := byte(0x78)
-	if original[1] == 0x52 {
-		dispatch = 0x7a
-	}
-	body := []byte{0x57, 0x8b, dispatch, 0x74}
-	body = append(body, hexBytes("538bdc83ec108b430c")...)
-	for offset := byte(0); offset < 16; offset += 4 {
-		body = append(body, 0x8b, 0x50, offset, 0xd1, 0xe2, 0x89, 0x54, 0x24, offset)
-	}
-	body = append(body, hexBytes("ff73148d442404ff731050ff7308ffd783c4105b5f8d642410")...)
-	return append(body, original[3:]...)
-}
-
-func patchUIExecutable(data []byte) error {
+func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 	if hash != stockEXEHash {
-		return fmt.Errorf("expected the original Steam Deluxe 1.1.641.0 executable (SHA-256 %s), got %s", stockEXEHash, hash)
+		return nil, fmt.Errorf("expected the original Steam Deluxe 1.1.641.0 executable (SHA-256 %s), got %s", stockEXEHash, hash)
 	}
 
 	// The fingerprint pins the PE layout as well as the x86 instructions.
@@ -73,7 +68,7 @@ func patchUIExecutable(data []byte) error {
 	rdata := text + 40
 	if string(bytes.TrimRight(data[text:text+8], "\x00")) != ".text" ||
 		string(bytes.TrimRight(data[rdata:rdata+8], "\x00")) != ".rdata" {
-		return errors.New("expected .text and .rdata sections")
+		return nil, errors.New("expected .text and .rdata sections")
 	}
 	virtualSize := int(little.Uint32(data[text+8:]))
 	rva := int(little.Uint32(data[text+12:]))
@@ -81,6 +76,9 @@ func patchUIExecutable(data []byte) error {
 	rawStart := int(little.Uint32(data[text+20:]))
 	stubRVA := (rva + virtualSize + 15) &^ 15
 	stubStart := rawStart + stubRVA - rva
+	if textureScale == 4 {
+		stubRVA = int(little.Uint32(data[pe+80:])) // SizeOfImage
+	}
 
 	// Catalog and Disasters allocate their button frames in code.
 	stub, catalog := appendStub(nil, stubRVA, 0x3eb15d,
@@ -100,7 +98,6 @@ func patchUIExecutable(data []byte) error {
 		instruction(0x3e74c3, "6a0a", "6a14"),
 		instruction(0x3eaeef, "6a056a2c6a2c8bceff5030", "6a0a6a586a588bceff5030"),
 		instruction(0x3e72a4, "6a056a2c6a2c8bceff5230", "6a0a6a586a588bceff5230"),
-		instruction(0x3e73d8, "8d5c03ff", "8d5c032f"),
 		instruction(0x3f4d19, "68a264258a", "68c3404ae7"),
 		// Runtime HUD controls use image IDs and sizes outside the layouts.
 		instruction(0x3ee037, "c7442440b006a046c744244488452453", "c7442440bd404ae7c744244488452453"),
@@ -108,6 +105,10 @@ func patchUIExecutable(data []byte) error {
 		instruction(0x3ed4f3, "c744243884550114", "c7442438ab60d22b"),
 		instruction(0x3bf2db, "83c303", "83c306"),
 		instruction(0x37019c, "6888f8064c", "68c0404ae7"),
+		// Both Ordinances tables use the ledger header style. The expense
+		// table otherwise inherits the enlarged advisor headline.
+		instruction(0x37ce15, "689e4a0faa", "6804d385ea"),
+		instruction(0x37ce5b, "689e4a0faa", "6804d385ea"),
 		// Text and viewport-constrained capture presets scale together.
 		instruction(0x3b7af5, "6a0e", "6a1c"),
 		instruction(0x3b6bef, "83ea04", "83ea08"),
@@ -120,30 +121,130 @@ func patchUIExecutable(data []byte) error {
 		patches = append(patches, instructionPatch{site,
 			relativeInstruction(0xe8, site, snapshotAppend), relativeInstruction(0xe8, site, snapshotRVA)})
 	}
-	for _, site := range []struct {
-		rva  int
-		code string
-	}{
-		{0x39abb5, "ff50748b4e68"},
-		{0x39b2c0, "ff50748b8ee0000000"},
-		{0x39b3de, "ff50748b8600010000"},
-		{0x39b42b, "ff52748b3f"},
-	} {
-		original := hexBytes(site.code)
-		var patch instructionPatch
-		stub, patch = appendStub(stub, stubRVA, site.rva, original, catalogBlitBody(original))
-		patches = append(patches, patch)
+	if textureScale == 4 {
+		// This constructor is shared by the four dynamically built budget
+		// slider paths. Give the stock slider the projected four-state atlas.
+		var budgetSlider instructionPatch
+		stub, budgetSlider = appendStub(stub, stubRVA, 0x379508, hexBytes("8bf08b168bce"), budgetSliderArt)
+		patches = append(patches, budgetSlider)
+
+		// The graph window builds its plot rectangle in screen pixels.
+		// Leave room for the enlarged ticks, title, and line-chart legend.
+		var graphLegend instructionPatch
+		stub, graphLegend = appendStub(stub, stubRVA, 0x36dd4b,
+			hexBytes("83e81483ea6e"), hexBytes("83e82081eab4000000"))
+		patches = append(patches, graphLegend,
+			instruction(0x36d834, "83e814", "83e820"),
+			instruction(0x36d848, "c78424980000002d000000", "c784249800000046000000"),
+			instruction(0x36d853, "c784249c00000014000000", "c784249c00000020000000"),
+			instruction(0x36dd5f, "c78424a80000002d000000", "c78424a800000046000000"),
+			instruction(0x36dd6a, "c78424ac00000014000000", "c78424ac00000020000000"))
+
+		// Both legend paths need the same gutter. Line and bar charts use
+		// direct-drawn swatches, while other charts create bitmap controls.
+		var graphLegendStart, graphSwatches, graphLabels instructionPatch
+		stub, graphLegendStart = appendStub(stub, stubRVA, 0x36e0f5,
+			hexBytes("83eb6a83f802"), hexBytes("81ebaa00000083f802"))
+		stub, graphSwatches = appendStub(stub, stubRVA, 0x36e159,
+			hexBytes("8d4aa4518b4c24205183c294"),
+			hexBytes("8d8a64ffffff518b4c24205181c254ffffff"))
+		stub, graphLabels = appendStub(stub, stubRVA, 0x36e1f1,
+			hexBytes("8d8c24f800000083eb5a"), hexBytes("8d8c24f800000081eb9a000000"))
+		patches = append(patches, graphLegendStart, graphSwatches, graphLabels)
+
+		// Draw a second scanline for data series, clamped to the top of
+		// the plot. The axes, grid, and legend have separate draw paths.
+		var graphSeries instructionPatch
+		stub, graphSeries = appendStub(stub, stubRVA, 0x5b60f4, hexBytes("ff9080000000"),
+			hexBytes("ff90800000008b86e40000003945cc7e03ff4dcc3945d47e03ff4dd4"+
+				"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
+		patches = append(patches, graphSeries)
+
+		// Empty ledger sections share a dialog built in code. Keep the
+		// root, text pane, and frame at the same size for layout and input.
+		for _, site := range []int{0x37c19e, 0x37c1b0, 0x37c1d9, 0x37c2e0, 0x37c301} {
+			var emptyLedgerSize instructionPatch
+			stub, emptyLedgerSize = appendStub(stub, stubRVA, site,
+				hexBytes("6a64682c010000"), hexBytes("68c80000006858020000"))
+			patches = append(patches, emptyLedgerSize)
+		}
+		patches = append(patches,
+			instruction(0x37c254, "6807d385ea", "687ecf0353"), // HDBdgtPopupHeader
+			instruction(0x37c27e, "6808d385ea", "685e3d6e95"), // HDBdgtPopupBody
+			instruction(0x37c260, "6a056a0a", "6a0a6a14"),
+			instruction(0x37c286, "6a196a0f", "6a326a1e"),
+			instruction(0x37c2ba, "6a0b680d010000", "6a126839020000"))
+
+		// Moving a funding slider reapplies the fonts to the existing
+		// row labels and amounts. Use the same aliases as initial layout.
+		patches = append(patches,
+			instruction(0x38a3a0, "6806d385ea", "68e3272344"),
+			instruction(0x38a479, "6806d385ea", "68e3272344"),
+			instruction(0x38a9ed, "6805d385ea", "68ca29131d"),
+			instruction(0x38aa9d, "6805d385ea", "68ca29131d"))
+
+		// Resize the completed department windows after their controls
+		// have been constructed. Empty sections return earlier.
+		budgetScaleRVA := stubRVA + len(stub)
+		stub = append(stub, budgetTreeScale...)
+		for _, layout := range []struct {
+			site int
+			root byte
+			mode byte
+			next string
+		}{
+			{0x3875ca, 0x57, 1, "8d8c2418010000"}, // 650 px dialog, EDI
+			{0x38976c, 0x55, 1, "8d8c2458010000"}, // 500 px dialog, EBP
+			{0x387c47, 0x55, 2, "8d8c2428010000"}, // 450 px Ordinances, EBP
+		} {
+			const fontManagerRVA = 0x513c72
+			start := stubRVA + len(stub)
+			body := []byte{0x50} // Preserve EAX across the adapter.
+			body = append(body, relativeInstruction(0xe8, start+len(body), fontManagerRVA)...)
+			body = append(body, 0x50, 0x6a, layout.mode, layout.root) // Font manager, center flag, dialog.
+			body = append(body, relativeInstruction(0xe8, start+len(body), budgetScaleRVA)...)
+			body = append(body, hexBytes("83c40c58")...) // Drop arguments, restore EAX.
+			body = append(body, hexBytes(layout.next)...)
+			var budgetTree instructionPatch
+			stub, budgetTree = appendStub(stub, stubRVA, layout.site, hexBytes(layout.next), body)
+			patches = append(patches, budgetTree)
+		}
+
+		var gauges instructionPatch
+		// Free Drive gauges select a stock frame at runtime. Stretch the
+		// destination to the doubled HUD size while keeping the source cell.
+		stub, gauges = appendStub(stub, stubRVA, 0x3628c4,
+			hexBytes("897c241c895c2420"), hexBytes("8d143f8954241c8d141b89542420"))
+		patches = append(patches, gauges)
+
+		// The HTML control creates its vertical scrollbar at runtime. Resize
+		// the child rectangle and reserve matching space in the text viewport.
+		var bottom, left instructionPatch
+		stub, bottom = appendStub(stub, stubRVA, 0x4fa8b9,
+			hexBytes("508b068bce"), hexBytes("83f80873056a0458eb0383e804508b068bce"))
+		// SetArea takes edges, and the stock left edge depends on the child
+		// width from the previous layout. Use a fixed width across resizes.
+		stub, left = appendStub(stub, stubRVA, 0x4fa8c5,
+			hexBytes("8b036a008bcbff90a400000033db432bd88b068bce"),
+			hexBytes("6a04bbe4ffffff8b068bce"))
+		patches = append(patches, bottom, left,
+			instruction(0x4fbcbf, "c7868c01000016000000", "c7868c01000024000000"))
+		// The horizontal update must not overwrite the vertical range.
+		for _, site := range []int{0x4fa849, 0x4fa857, 0x4fa872} {
+			patches = append(patches, instruction(site, "8b8ea4010000", "8b8ea8010000"))
+		}
+		stub, patches = appendDensityUIPatches(stub, patches, stubRVA)
 	}
 	stubEnd := stubStart + len(stub)
-	if stubEnd > rawStart+rawSize || !bytes.Equal(data[stubStart:stubEnd], make([]byte, len(stub))) {
-		return errors.New("no empty .text padding for the UI stubs")
+	if textureScale == 2 && (stubEnd > rawStart+rawSize || !bytes.Equal(data[stubStart:stubEnd], make([]byte, len(stub)))) {
+		return nil, errors.New("no empty .text padding for the UI stubs")
 	}
 	for _, patch := range patches {
 		offset := rawStart + patch.rva - rva
 		end := offset + len(patch.original)
 		if offset < rawStart || end > rawStart+virtualSize || len(patch.original) != len(patch.replacement) ||
 			!bytes.Equal(data[offset:end], patch.original) {
-			return fmt.Errorf("unexpected UI instructions at RVA %#x", patch.rva)
+			return nil, fmt.Errorf("unexpected UI instructions at RVA %#x", patch.rva)
 		}
 		copy(data[offset:end], patch.replacement)
 	}
@@ -152,25 +253,58 @@ func patchUIExecutable(data []byte) error {
 		text   string
 		size   byte
 	}{
-		{0x683820, `<FONT COLOR="#8e9499" FACE="Arta" SIZE=3><I>`, '6'},
-		{0x683850, `<FONT COLOR="#3f4967" FACE="Arta" SIZE=3><I>`, '6'},
+		{0x683820, `<FONT COLOR="#8e9499" FACE="Arta" SIZE=3><I>`, '5'},
+		{0x683850, `<FONT COLOR="#3f4967" FACE="Arta" SIZE=3><I>`, '5'},
 		{0x683880, ` FACE="StocletITC TT" SIZE=3><B>`, '5'},
 	} {
 		start := int(little.Uint32(data[rdata+20:]))
 		end := template.offset + len(template.text)
 		if template.offset < start || end > start+int(little.Uint32(data[rdata+16:])) ||
 			string(data[template.offset:end]) != template.text {
-			return fmt.Errorf("unexpected news HTML template at offset %#x", template.offset)
+			return nil, fmt.Errorf("unexpected news HTML template at offset %#x", template.offset)
 		}
 		offset := bytes.Index([]byte(template.text), []byte("SIZE=3")) + len("SIZE=")
 		data[template.offset+offset] = template.size
 	}
 
-	copy(data[stubStart:stubEnd], stub)
-	little.PutUint32(data[text+8:], uint32(stubRVA-rva+len(stub)))
+	if textureScale == 4 {
+		var err error
+		data, err = appendUISection(data, pe, text, stubRVA, stub)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		copy(data[stubStart:stubEnd], stub)
+		little.PutUint32(data[text+8:], uint32(stubRVA-rva+len(stub)))
+	}
 	little.PutUint16(data[pe+22:], little.Uint16(data[pe+22:])|0x20)
 	little.PutUint32(data[pe+88:], peChecksum(data, pe+88))
-	return nil
+	return data, nil
+}
+
+// appendUISection leaves all stock sections and their file offsets in place.
+func appendUISection(data []byte, pe, table, rva int, code []byte) ([]byte, error) {
+	const headerSize = 40
+	const alignment = 0x1000 // Both alignment fields in the supported Steam EXE.
+	count := little.Uint16(data[pe+6:])
+	header := table + int(count)*headerSize
+	if header+headerSize > int(little.Uint32(data[pe+84:])) ||
+		!bytes.Equal(data[header:header+headerSize], make([]byte, headerSize)) ||
+		rva%alignment != 0 || len(data)%alignment != 0 {
+		return nil, errors.New("no space for the HD UI PE section")
+	}
+	size := (len(code) + alignment - 1) &^ (alignment - 1)
+	copy(data[header:], ".sc4hd")
+	little.PutUint32(data[header+8:], uint32(len(code)))
+	little.PutUint32(data[header+12:], uint32(rva))
+	little.PutUint32(data[header+16:], uint32(size))
+	little.PutUint32(data[header+20:], uint32(len(data)))
+	little.PutUint32(data[header+36:], 0x60000020) // Code, read, execute.
+	little.PutUint16(data[pe+6:], count+1)
+	little.PutUint32(data[pe+28:], little.Uint32(data[pe+28:])+uint32(size))
+	little.PutUint32(data[pe+80:], uint32(rva+size))
+	data = append(data, code...)
+	return append(data, make([]byte, size-len(code))...), nil
 }
 
 func peChecksum(data []byte, field int) uint32 {
@@ -190,6 +324,15 @@ func peChecksum(data []byte, field int) uint32 {
 }
 
 func runUIExecutable(args []string) error {
+	flags := flag.NewFlagSet("patch-ui-exe", flag.ContinueOnError)
+	scale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	args = flags.Args()
+	if *scale != 2 && *scale != 4 {
+		return errors.New("texture scale must be 2 or 4")
+	}
 	if len(args) != 2 {
 		return errors.New("usage: simcity4-hd patch-ui-exe GAME_DIR OUTPUT.exe")
 	}
@@ -197,7 +340,8 @@ func runUIExecutable(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := patchUIExecutable(data); err != nil {
+	data, err = patchUIExecutable(data, *scale)
+	if err != nil {
 		return err
 	}
 	return publishFile(args[1], func(w io.Writer) error {

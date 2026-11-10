@@ -92,7 +92,7 @@ func (s uiStock) windowGroups() ([]windowGroup, error) {
 	return groups, nil
 }
 
-func buildWindowEntries(stock uiStock, config string, graphics4K bool, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
+func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
 	groups, err := stock.windowGroups()
 	if err != nil {
 		return nil, "", err
@@ -107,7 +107,7 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, art func(
 			if err != nil {
 				return nil, "", err
 			}
-			if err := window.add(instance, data, stock.isPNG); err != nil {
+			if err := window.add(instance, data, textureScale, stock.isPNG); err != nil {
 				return nil, "", err
 			}
 		}
@@ -128,8 +128,13 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, art func(
 			if err != nil {
 				return nil, "", fmt.Errorf("%s: %w", asset.atlas.source, err)
 			}
-			if mayorJoinAtlas(asset.target) {
-				data, err = preserveMayorAlpha(original, data)
+			joinID, artScale := asset.target, textureScale
+			if asset.atlas.project {
+				joinID.group -= 0x20
+				artScale = 2
+			}
+			if mayorJoinAtlas(joinID) {
+				data, err = preserveMayorAlpha(original, data, artScale)
 				if err != nil {
 					return nil, "", fmt.Errorf("%s: %w", asset.target, err)
 				}
@@ -166,7 +171,7 @@ func mayorJoinAtlas(id resourceID) bool {
 	return false
 }
 
-func preserveMayorAlpha(stock, enlarged []byte) ([]byte, error) {
+func preserveMayorAlpha(stock, enlarged []byte, scale int) ([]byte, error) {
 	source, err := decodeRGBA(stock)
 	if err != nil {
 		return nil, err
@@ -175,12 +180,12 @@ func preserveMayorAlpha(stock, enlarged []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if art.Rect.Dx() != 4*source.Rect.Dx() || art.Rect.Dy() != 4*source.Rect.Dy() {
+	if art.Rect.Dx() != scale*source.Rect.Dx() || art.Rect.Dy() != scale*source.Rect.Dy() {
 		return nil, fmt.Errorf("invalid mayor backdrop dimensions")
 	}
 	for y := range art.Rect.Dy() {
 		for x := range art.Rect.Dx() {
-			art.Pix[art.PixOffset(x, y)+3] = source.NRGBAAt(x/4, y/4).A
+			art.Pix[art.PixOffset(x, y)+3] = source.NRGBAAt(x/scale, y/scale).A
 		}
 	}
 	return encodeRGBA(art)

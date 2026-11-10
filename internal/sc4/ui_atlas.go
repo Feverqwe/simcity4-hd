@@ -140,3 +140,104 @@ func inferAtlasCells(source *image.NRGBA, widths []int, scale int, infer func([]
 	}
 	return atlas, nil
 }
+
+func projectAtlas(atlas *image.NRGBA, widths []int, keyed bool) (*image.NRGBA, error) {
+	total := 0
+	for _, width := range widths {
+		if width <= 0 {
+			return nil, errors.New("invalid atlas cell width")
+		}
+		total += width
+	}
+	if atlas.Rect.Dx() != 4*total || atlas.Rect.Dy()%4 != 0 {
+		return nil, errors.New("invalid x4 atlas dimensions")
+	}
+	result := image.NewNRGBA(image.Rect(0, 0, 2*total, atlas.Rect.Dy()/2))
+	x := 0
+	for _, width := range widths {
+		rectangle := image.Rect(4*x, 0, 4*(x+width), atlas.Rect.Dy()).Add(atlas.Rect.Min)
+		cell := atlas.SubImage(rectangle).(*image.NRGBA)
+		resized := projectAtlasCell(cell, keyed)
+		draw.Draw(result, image.Rect(2*x, 0, 2*(x+width), result.Rect.Dy()), resized, resized.Rect.Min, draw.Src)
+		x += width
+	}
+	return result, nil
+}
+
+// Pillow resizes RGBA through premultiplied eight-bit channels and rounds after
+// each separable pass. Filtering each cell separately prevents state bleed.
+func projectAtlasCell(cell *image.NRGBA, keyed bool) *image.NRGBA {
+	width, height := cell.Rect.Dx(), cell.Rect.Dy()
+	horizontal := image.NewNRGBA(image.Rect(0, 0, width/2, height))
+	for y := range height {
+		for x := range width / 2 {
+			horizontal.SetNRGBA(x, y, filterAtlasPair(x, width, keyed, func(i int) color.NRGBA {
+				p := cell.NRGBAAt(cell.Rect.Min.X+i, cell.Rect.Min.Y+y)
+				return color.NRGBA{premultiply(p.R, p.A), premultiply(p.G, p.A), premultiply(p.B, p.A), p.A}
+			}))
+		}
+	}
+	result := image.NewNRGBA(image.Rect(0, 0, width/2, height/2))
+	for y := range height / 2 {
+		for x := range width / 2 {
+			p := filterAtlasPair(y, height, keyed, func(i int) color.NRGBA {
+				return horizontal.NRGBAAt(x, i)
+			})
+			if p.A != 0 {
+				p.R, p.G, p.B = unpremultiply(p.R, p.A), unpremultiply(p.G, p.A), unpremultiply(p.B, p.A)
+			}
+			result.SetNRGBA(x, y, p)
+		}
+	}
+	return result
+}
+
+func premultiply(value, alpha byte) byte   { return byte((int(value)*int(alpha) + 127) / 255) }
+func unpremultiply(value, alpha byte) byte { return byte(min(255, int(value)*255/int(alpha))) }
+
+func filterAtlasPair(index, size int, keyed bool, at func(int) color.NRGBA) color.NRGBA {
+	start, weights := 2*index-1, []int{1, 3, 3, 1}
+	if keyed {
+		start, weights = 2*index, []int{1, 1}
+	}
+	var r, g, b, a, total int
+	for i, weight := range weights {
+		if position := start + i; position >= 0 && position < size {
+			p := at(position)
+			r += int(p.R) * weight
+			g += int(p.G) * weight
+			b += int(p.B) * weight
+			a += int(p.A) * weight
+			total += weight
+		}
+	}
+	return color.NRGBA{byte((r + total/2) / total), byte((g + total/2) / total),
+		byte((b + total/2) / total), byte((a + total/2) / total)}
+}
+
+func projectUIArtwork(original, enlarged []byte, widths []int, useEnlargedKey bool) ([]byte, error) {
+	return projectUIArtworkWithAlpha(original, enlarged, widths, false, useEnlargedKey)
+}
+
+func projectUIArtworkWithAlpha(original, enlarged []byte, widths []int, originalAlpha, useEnlargedKey bool) ([]byte, error) {
+	source, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	atlas, err := decodeRGBA(enlarged)
+	if err != nil {
+		return nil, err
+	}
+	keyed := hasColorKey(source)
+	if useEnlargedKey {
+		keyed = hasColorKey(atlas)
+	}
+	projected, err := projectAtlas(atlas, widths, keyed)
+	if err != nil {
+		return nil, err
+	}
+	if originalAlpha {
+		restoreLanczosAlpha(source, projected)
+	}
+	return encodeRGBA(projected)
+}

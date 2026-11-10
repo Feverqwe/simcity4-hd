@@ -17,12 +17,14 @@ import (
 const uiImage = 0x856ddbac
 const catalogIconGroup = 0x6a386d26
 
-func uiCachePath(cache string, id resourceID, original []byte, frames int, keyed bool) string {
+func uiCachePath(cache string, id resourceID, original []byte, frames, scale int, keyed bool) string {
 	suffix := ""
 	if keyed {
 		suffix += "-keyed"
 	}
-	suffix += "-x4"
+	if scale != 2 {
+		suffix += fmt.Sprintf("-x%d", scale)
+	}
 	return filepath.Join(cache, fmt.Sprintf("%08x-%08x-%08x-%d-%x%s.png",
 		id.kind, id.group, id.instance, frames, sha256.Sum256(original), suffix))
 }
@@ -88,7 +90,7 @@ func addSKUIcons(catalog *gameCatalog, game string, isIcon func(resourceID) bool
 	return nil
 }
 
-func catalogSheetEntries(game, cache string, infer func([]byte) ([]byte, error)) (square, bridge []resource, err error) {
+func catalogSheetEntries(game, cache string, scale int, infer func([]byte) ([]byte, error)) (square, bridge []resource, err error) {
 	catalog, err := readCatalogIcons(game)
 	if err != nil {
 		return nil, nil, err
@@ -114,9 +116,16 @@ func catalogSheetEntries(game, cache string, infer func([]byte) ([]byte, error))
 			continue
 		}
 		width := config.Width / 4
-		art, _, err := cachedUIAtlas(cache, id, stock, []int{width, width, width, width}, infer)
+		art, _, err := cachedUIAtlas(cache, id, stock, []int{width, width, width, width}, 4, infer)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", id, err)
+		}
+
+		if scale == 2 {
+			art, err = projectUIArtwork(stock, art, []int{width, width, width, width}, false)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", id, err)
+			}
 		}
 
 		*destination = append(*destination, resource{id, art})
@@ -157,7 +166,7 @@ func runCatalogSheets(args []string) error {
 			return worker.upscalePNG(png)
 		}
 	}
-	square, bridge, err := catalogSheetEntries(args[0], args[1], infer)
+	square, bridge, err := catalogSheetEntries(args[0], args[1], 4, infer)
 	if worker != nil {
 		if err != nil {
 			cancel()

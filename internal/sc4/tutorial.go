@@ -28,24 +28,14 @@ func tutorialEntries(locale string) ([]resource, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", r.id, err)
 		}
-		if len(data) < 4 || len(data)%2 != 0 {
-			return nil, fmt.Errorf("%s: invalid UTF-16 tutorial resource", r.id)
+		changed, err := rewriteLocaleHTML(data, func(text string) string {
+			return tutorialFontSize.ReplaceAllString(text, "${1}7${2}")
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", r.id, err)
 		}
-		units := make([]uint16, (len(data)-4)/2)
-		for i := range units {
-			units[i] = little.Uint16(data[4+2*i:])
-		}
-		text := string(utf16.Decode(units))
-		updated := tutorialFontSize.ReplaceAllString(text, "${1}7${2}")
-		if updated == text {
+		if !changed {
 			continue
-		}
-		encoded := utf16.Encode([]rune(updated))
-		if len(encoded) != len(units) || !validUTF16(units) {
-			return nil, fmt.Errorf("%s: invalid UTF-16 tutorial text", r.id)
-		}
-		for i, unit := range encoded {
-			little.PutUint16(data[4+2*i:], unit)
 		}
 		entries = append(entries, resource{r.id, data})
 	}
@@ -53,6 +43,73 @@ func tutorialEntries(locale string) ([]resource, error) {
 		return nil, errors.New("no tutorial text with the expected font markup found")
 	}
 	return entries, nil
+}
+
+var (
+	creditsTextID   = resourceID{0x2026960b, 0x8a4924f3, 0x4a5d648f}
+	creditsFontSize = regexp.MustCompile(`(?i)(<font\b[^>]*?\bsize\s*=\s*["']?)3(["'\s][^>]*>|>)`)
+)
+
+func creditsEntries(locale string) ([]resource, error) {
+	a, err := openArchive(locale)
+	if err != nil {
+		return nil, err
+	}
+	defer a.file.Close()
+	for _, r := range a.records {
+		if r.id != creditsTextID {
+			continue
+		}
+		data, err := a.read(r)
+		if err != nil {
+			return nil, err
+		}
+		changed, err := rewriteLocaleHTML(data, func(text string) string {
+			var result strings.Builder
+			start := 0
+			for _, m := range creditsFontSize.FindAllStringSubmatchIndex(text, -1) {
+				if strings.HasPrefix(strings.TrimSpace(text[m[1]:]), "&nbsp;</font>") {
+					continue
+				}
+				result.WriteString(text[start:m[3]])
+				result.WriteByte('4')
+				start = m[3] + 1
+			}
+			result.WriteString(text[start:])
+			return result.String()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", r.id, err)
+		}
+		if changed {
+			return []resource{{r.id, data}}, nil
+		}
+		break
+	}
+	return nil, nil
+}
+
+func rewriteLocaleHTML(data []byte, rewrite func(string) string) (bool, error) {
+	if len(data) < 4 || len(data)%2 != 0 {
+		return false, errors.New("invalid UTF-16 text resource")
+	}
+	units := make([]uint16, (len(data)-4)/2)
+	for i := range units {
+		units[i] = little.Uint16(data[4+2*i:])
+	}
+	text := string(utf16.Decode(units))
+	updated := rewrite(text)
+	if updated == text {
+		return false, nil
+	}
+	encoded := utf16.Encode([]rune(updated))
+	if len(encoded) != len(units) || !validUTF16(units) {
+		return false, errors.New("invalid UTF-16 text")
+	}
+	for i, unit := range encoded {
+		little.PutUint16(data[4+2*i:], unit)
+	}
+	return true, nil
 }
 
 func validUTF16(units []uint16) bool {

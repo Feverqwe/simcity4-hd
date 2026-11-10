@@ -17,7 +17,7 @@ type regionAtlas struct {
 	frames   int
 }
 
-func regionEntries(stock uiStock, config string, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
+func regionEntries(stock uiStock, config string, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
 	id := layoutID(0xaa920991)
 	data, err := stock.read(id)
 	if err != nil {
@@ -38,21 +38,30 @@ func regionEntries(stock uiStock, config string, art func(layoutAtlas, []byte) (
 		for _, atlas := range atlases {
 			source := resourceID{uiImage, catalogFrameGroup, atlas.instance}
 			original := fmt.Sprintf("{%08x,%08x}", source.group, source.instance)
+			// The city selection background and the settings frames use native drawing.
+			project := textureScale == 4 && (atlas.instance == 0x14416307 || atlas.instance == 0x144161e4)
+			targetGroup := group
+			if project {
+				targetGroup += 0x20
+			}
 			if atlas.instance != deferred {
 				if !strings.Contains(section, original) {
 					return "", fmt.Errorf("region atlas %s missing from layout", source)
 				}
-				section = strings.ReplaceAll(section, original, fmt.Sprintf("{%08x,%08x}", group, atlas.instance))
+				section = strings.ReplaceAll(section, original, fmt.Sprintf("{%08x,%08x}", targetGroup, atlas.instance))
 			}
 			data, err := stock.read(source)
 			if err != nil {
 				return "", err
 			}
-			data, err = art(layoutAtlas{source, atlas.frames}, data)
+			data, err = art(layoutAtlas{source: source, frames: atlas.frames, project: project}, data)
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", source, err)
 			}
-			entries = append(entries, resource{resourceID{uiImage, group, atlas.instance}, data})
+			entries = append(entries, resource{resourceID{uiImage, targetGroup, atlas.instance}, data})
+		}
+		if textureScale == 2 {
+			return section, nil
 		}
 		lines := strings.SplitAfter(section, "\n")
 		marker := fmt.Sprintf("image={%08x,", group)
