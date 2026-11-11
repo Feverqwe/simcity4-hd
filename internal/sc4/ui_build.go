@@ -36,6 +36,7 @@ const (
 	previewHDGroup        = 0xe74a40c0
 	disasterBackground    = 0x8a2564a2
 	disasterBackgroundHD  = 0xe74a40c3
+	disasterBackgroundX4  = 0xe74a40c9
 )
 
 type uiArtwork struct {
@@ -58,14 +59,9 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 		return nil, err
 	}
 	if a.scale == 4 && !spec.project {
-		if spec.source.group == catalogFrameGroup &&
-			(spec.source.instance == 0x13f1524c || spec.source.instance == 0x13f15266) {
-			return protectPortraitOutline(original, data, false)
-		}
 		return data, nil
 	}
-	originalAlpha := spec.source.group == previewGroup ||
-		spec.source == (resourceID{uiImage, catalogFrameGroup, disasterBackground})
+	originalAlpha := spec.source == (resourceID{uiImage, catalogFrameGroup, disasterBackground})
 	return projectUIArtworkWithAlpha(original, data, widths, originalAlpha, false)
 }
 
@@ -248,7 +244,7 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		if err != nil {
 			return nil, err
 		}
-		data, err := art.upscale(layoutAtlas{source: id, frames: 1, project: true}, original)
+		data, err := art.upscale(layoutAtlas{source: id, frames: 1}, original)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
@@ -310,42 +306,6 @@ func (a uiArtwork) upscalePollArrows(id resourceID, original []byte) ([]byte, er
 				}
 				result.SetNRGBA(x, y, pixel)
 			}
-		}
-	}
-	return encodeRGBA(result)
-}
-
-// Keep the original silhouette and limit color changes along its outline.
-func protectPortraitOutline(original, enlarged []byte, picker bool) ([]byte, error) {
-	source, err := decodeRGBA(original)
-	if err != nil {
-		return nil, err
-	}
-	result, err := decodeRGBA(enlarged)
-	if err != nil {
-		return nil, err
-	}
-	for y := range result.Rect.Dy() {
-		for x := range result.Rect.Dx() {
-			sx, sy := x/4, y/4
-			stock := source.NRGBAAt(sx, sy)
-			pixel := stock
-			if stock.A != 0 && stock != uiColorKey {
-				inferred := result.NRGBAAt(x, y)
-				insideFrame := !picker || (sx >= 4 && sx < source.Rect.Dx()-4 &&
-					sy >= 4 && sy < source.Rect.Dy()-4)
-				if insideFrame && stock.A == 255 && source.NRGBAAt(sx-1, sy).A == 255 &&
-					source.NRGBAAt(sx+1, sy).A == 255 && source.NRGBAAt(sx, sy-1).A == 255 &&
-					source.NRGBAAt(sx, sy+1).A == 255 {
-					pixel = inferred
-					pixel.A = 255
-				} else {
-					pixel.R = byte((3*int(stock.R) + int(inferred.R) + 2) / 4)
-					pixel.G = byte((3*int(stock.G) + int(inferred.G) + 2) / 4)
-					pixel.B = byte((3*int(stock.B) + int(inferred.B) + 2) / 4)
-				}
-			}
-			result.SetNRGBA(x, y, pixel)
 		}
 	}
 	return encodeRGBA(result)
@@ -464,15 +424,27 @@ func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {
 	if !bytes.Equal(first, second) {
 		return nil, errors.New("stock Disasters background copies differ")
 	}
-	// The runtime Disasters panel shares the catalog's native copy path.
+	// Keep a screen-density fallback for the runtime compositor.
 	data, err := art.upscale(layoutAtlas{source: id, frames: 1, project: true}, first)
 	if err != nil {
 		return nil, err
 	}
-	return []resource{
+	entries := []resource{
 		{resourceID{uiImage, catalogFrameGroup, disasterBackgroundHD}, data},
 		{resourceID{uiImage, mySimPortraitGroup, disasterBackgroundHD}, data},
-	}, nil
+	}
+	if art.scale == 4 {
+		target := resourceID{uiImage, catalogFrameGroup, disasterBackgroundX4}
+		if _, exists := stock.index[target]; exists {
+			return nil, fmt.Errorf("Disasters background key collision: %s", target)
+		}
+		dense, err := art.upscale(layoutAtlas{source: id, frames: 1}, first)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, resource{target, dense})
+	}
+	return entries, nil
 }
 
 type uiPackage struct {

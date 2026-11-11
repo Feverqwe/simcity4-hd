@@ -3,8 +3,6 @@ package sc4
 import (
 	"bytes"
 	"fmt"
-	"image"
-	"image/color"
 	"slices"
 	"strings"
 )
@@ -130,19 +128,19 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureSc
 			if err != nil {
 				return nil, "", fmt.Errorf("%s: %w", asset.atlas.source, err)
 			}
-			if asset.target == (resourceID{uiImage, 0xe74a40d6, 0xbb97ac30}) {
-				data, err = roundNewsHoverAtlas(data)
-				if err != nil {
-					return nil, "", err
-				}
-			}
 			joinID, artScale := asset.target, textureScale
 			if asset.atlas.project {
 				joinID.group -= 0x20
 				artScale = 2
 			}
-			if mayorJoinAtlas(joinID) {
-				data, err = preserveMayorAlpha(original, data, artScale)
+			if usesStockWindowAlpha(joinID) {
+				edgeFrames := 0
+				if joinID.group == 0xe74a40b7 && joinID.instance == 0xbdd0852c {
+					// The model lightens visible pixels next to the transparent
+					// white padding of the Add My Sim button.
+					edgeFrames = asset.atlas.frames
+				}
+				data, err = preserveStockAlpha(original, data, artScale, edgeFrames)
 				if err != nil {
 					return nil, "", fmt.Errorf("%s: %w", asset.target, err)
 				}
@@ -167,19 +165,26 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureSc
 	return entries, config, nil
 }
 
-// These backdrop pieces meet at a hard edge. Retain the stock alpha at the
-// new pixel density so neither neighboring piece becomes visible at the seam.
-func mayorJoinAtlas(id resourceID) bool {
+func usesStockWindowAlpha(id resourceID) bool {
 	switch id.group {
 	case 0xe74a40b3:
+		// Mayor backdrop pieces meet at a hard edge.
 		return id.instance == 0x39436963 || id.instance == 0x15cb44b4
 	case 0xe74a40b6:
-		return id.instance == 0x9d46b8f0 || id.instance == 0x0cd075f5 || id.instance == 0x95d9244f
+		// The Polls outline overlays the score fill.
+		return id.instance == 0x9d46b8f0 || id.instance == 0x0cd075f5 || id.instance == 0x95d9244f ||
+			id.instance == 0xa0653af9
+	case 0xe74a40b7:
+		// My Sims HUD portrait and Add My Sim overlays.
+		return id.instance == 0x94e742d5 || id.instance == 0xbdd0852c
+	case 0xe74a40ba:
+		// The Select a My Sim button frames have a thin outline.
+		return id.instance == 0x649fd6a1
 	}
 	return false
 }
 
-func preserveMayorAlpha(stock, enlarged []byte, scale int) ([]byte, error) {
+func preserveStockAlpha(stock, enlarged []byte, scale, edgeFrames int) ([]byte, error) {
 	source, err := decodeRGBA(stock)
 	if err != nil {
 		return nil, err
@@ -189,52 +194,25 @@ func preserveMayorAlpha(stock, enlarged []byte, scale int) ([]byte, error) {
 		return nil, err
 	}
 	if art.Rect.Dx() != scale*source.Rect.Dx() || art.Rect.Dy() != scale*source.Rect.Dy() {
-		return nil, fmt.Errorf("invalid mayor backdrop dimensions")
+		return nil, fmt.Errorf("invalid dimensions for stock alpha")
+	}
+	frameWidth := 0
+	if edgeFrames > 0 {
+		frameWidth = source.Rect.Dx() / edgeFrames
 	}
 	for y := range art.Rect.Dy() {
 		for x := range art.Rect.Dx() {
-			art.Pix[art.PixOffset(x, y)+3] = source.NRGBAAt(x/scale, y/scale).A
-		}
-	}
-	return encodeRGBA(art)
-}
-
-// Match the fixed ticker hit rectangle and its rounded panel. Use a
-// native-sized outline so the stock painter cannot stretch the corners.
-func roundNewsHoverAtlas(data []byte) ([]byte, error) {
-	source, err := decodeRGBA(data)
-	if err != nil {
-		return nil, err
-	}
-	const cells, stockCell = 4, 12
-	const width, height, radius = 1380, 74, 12
-	if source.Bounds() != image.Rect(0, 0, cells*stockCell, stockCell) {
-		return nil, fmt.Errorf("unexpected News hover atlas bounds: %s", source.Bounds())
-	}
-	atlas := image.NewNRGBA(image.Rect(0, 0, cells*width, height))
-	for cell := range cells {
-		alpha := source.NRGBAAt(cell*stockCell+stockCell/2, 0).A
-		if alpha == 0 {
-			continue
-		}
-		for y := range height {
-			for x := range width {
-				dx := min(x, width-1-x)
-				dy := min(y, height-1-y)
-				if insideNewsCorner(dx, dy, radius) &&
-					!insideNewsCorner(dx-2, dy-2, radius-2) {
-					atlas.SetNRGBA(cell*width+x, y, color.NRGBA{255, 255, 255, alpha})
-				}
+			sx, sy := x/scale, y/scale
+			pixel := source.NRGBAAt(sx, sy)
+			if frameWidth > 0 && pixel.A != 0 && (pixel.A != 255 ||
+				sx%frameWidth == 0 || sx%frameWidth == frameWidth-1 ||
+				source.NRGBAAt(sx-1, sy).A == 0 || source.NRGBAAt(sx+1, sy).A == 0 ||
+				source.NRGBAAt(sx, sy-1).A == 0 || source.NRGBAAt(sx, sy+1).A == 0) {
+				art.SetNRGBA(x, y, pixel)
+			} else {
+				art.Pix[art.PixOffset(x, y)+3] = pixel.A
 			}
 		}
 	}
-	return encodeRGBA(atlas)
-}
-
-func insideNewsCorner(x, y, radius int) bool {
-	if x < 0 || y < 0 {
-		return false
-	}
-	dx, dy := max(0, 2*radius-1-2*x), max(0, 2*radius-1-2*y)
-	return dx*dx+dy*dy <= 4*radius*radius
+	return encodeRGBA(art)
 }

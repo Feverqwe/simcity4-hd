@@ -33,6 +33,9 @@ var expandLoadingPreview []byte
 //go:embed patchsrc/ui_playlist_wheel.i386
 var scrollPlaylist []byte
 
+//go:embed patchsrc/ui_disasters.i386
+var prepareDisasterBackground []byte
+
 type uiExecutableOptions struct {
 	hdCursors      bool
 	loadingPreview bool
@@ -69,6 +72,30 @@ func appendStub(stub []byte, base, site int, original, body []byte) ([]byte, ins
 	stub = append(stub, body...)
 	stub = append(stub, relativeInstruction(0xe9, base+len(stub), site+len(original))...)
 	return stub, instructionPatch{site, original, redirect}
+}
+
+func appendDisasterBackgroundPatch(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
+	const (
+		site          = 0x3e7459
+		loadBitmapVA  = 0x602b00
+		closeBitmapVA = 0x602be0
+		bufferFactory = 0x90ddf1
+	)
+	entry := base + len(stub)
+	stub = append(stub, prepareDisasterBackground...)
+	original := hexBytes("8b5424406850010000")
+	// Save the caller's state and pass the bitmap resource that it just loaded.
+	body := hexBytes("9c608d442460")
+	for _, arg := range []uint32{bufferFactory, closeBitmapVA, loadBitmapVA, disasterBackgroundX4} {
+		body = little.AppendUint32(append(body, 0x68), arg)
+	}
+	body = append(body, 0x50)
+	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
+	body = append(body, hexBytes("83c414619d")...)
+	body = append(body, original...)
+	var patch instructionPatch
+	stub, patch = appendStub(stub, base, site, original, body)
+	return stub, append(patches, patch)
 }
 
 func patchUIExecutable(data []byte, textureScale int, options uiExecutableOptions) ([]byte, error) {
@@ -112,9 +139,10 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		// Runtime HUD controls use image IDs and sizes outside the layouts.
 		instruction(0x3ee037, "c7442440b006a046c744244488452453", "c7442440bd404ae7c744244488452453"),
 		instruction(0x3ee15a, "83e81c506a0c", "83e838506a18"),
+		// Polls compute frame width from the atlas. The positive arrows
+		// still start at frame three in the six-frame replacement.
 		instruction(0x3ed4ce, "c744243880550114", "c7442438ac60d22b"),
 		instruction(0x3ed4f3, "c744243884550114", "c7442438ab60d22b"),
-		instruction(0x3bf2db, "83c303", "83c306"),
 		instruction(0x37019c, "6888f8064c", "68c0404ae7"),
 		// Both Ordinances tables use the ledger header style. The expense
 		// table otherwise inherits the enlarged advisor headline.
@@ -133,6 +161,26 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			relativeInstruction(0xe8, site, snapshotAppend), relativeInstruction(0xe8, site, snapshotRVA)})
 	}
 	if textureScale == 4 {
+		stub, patches = appendDisasterBackgroundPatch(stub, patches, stubRVA)
+
+		// Both My Sims preview loaders assign full-density bitmaps at runtime.
+		// Mark them for the density painter and for physical source clipping.
+		patches = append(patches, instruction(0x36eeab, "6888f8064c", "68c0404ae7"))
+		for _, site := range []int{0x36ef1b, 0x3701ba} {
+			var preview instructionPatch
+			stub, preview = appendStub(stub, stubRVA, site,
+				hexBytes("8b1150ff5210"),
+				hexBytes("804923a08b1150ff5210")) // Mark flags, then SetBitmap.
+			patches = append(patches, preview)
+		}
+		var previewCrop instructionPatch
+		stub, previewCrop = appendStub(stub, stubRVA, 0x5bc459,
+			hexBytes("8d86e8000000"),
+			// Runtime preview source limits are in texture pixels. The
+			// stock continuation clips those limits to the bitmap size.
+			hexBytes("f686fb00000020740401d201c98d86e8000000"))
+		patches = append(patches, previewCrop)
+
 		// This constructor is shared by the four dynamically built budget
 		// slider paths. Give the stock slider the projected four-state atlas.
 		var budgetSlider instructionPatch
