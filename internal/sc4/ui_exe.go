@@ -27,6 +27,18 @@ var budgetSliderArt []byte
 //go:embed patchsrc/ui_import_node_font.i386
 var importNodeFont []byte
 
+//go:embed patchsrc/ui_loading_preview.i386
+var expandLoadingPreview []byte
+
+//go:embed patchsrc/ui_playlist_wheel.i386
+var scrollPlaylist []byte
+
+type uiExecutableOptions struct {
+	hdCursors      bool
+	loadingPreview bool
+	regionMap      bool
+}
+
 type instructionPatch struct {
 	rva                   int
 	original, replacement []byte
@@ -59,7 +71,7 @@ func appendStub(stub []byte, base, site int, original, body []byte) ([]byte, ins
 	return stub, instructionPatch{site, original, redirect}
 }
 
-func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
+func patchUIExecutable(data []byte, textureScale int, options uiExecutableOptions) ([]byte, error) {
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 	if hash != stockEXEHash {
 		return nil, fmt.Errorf("expected the original Steam Deluxe 1.1.641.0 executable (SHA-256 %s), got %s", stockEXEHash, hash)
@@ -75,13 +87,8 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 	}
 	virtualSize := int(little.Uint32(data[text+8:]))
 	rva := int(little.Uint32(data[text+12:]))
-	rawSize := int(little.Uint32(data[text+16:]))
 	rawStart := int(little.Uint32(data[text+20:]))
-	stubRVA := (rva + virtualSize + 15) &^ 15
-	stubStart := rawStart + stubRVA - rva
-	if textureScale == 4 {
-		stubRVA = int(little.Uint32(data[pe+80:])) // SizeOfImage
-	}
+	stubRVA := int(little.Uint32(data[pe+80:])) // SizeOfImage
 
 	// Catalog and Disasters allocate their button frames in code.
 	stub, catalog := appendStub(nil, stubRVA, 0x3eb15d,
@@ -331,9 +338,72 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		}
 		stub, patches = appendDensityUIPatches(stub, patches, stubRVA)
 	}
-	stubEnd := stubStart + len(stub)
-	if textureScale == 2 && (stubEnd > rawStart+rawSize || !bytes.Equal(data[stubStart:stubEnd], make([]byte, len(stub)))) {
-		return nil, errors.New("no empty .text padding for the UI stubs")
+	if options.hdCursors {
+		// The hardware path calls LoadCursorFromFileA, which requests the
+		// system cursor size. LoadImageA with only LR_LOADFROMFILE instead
+		// preserves the file dimensions and hotspot. Keep the original API
+		// as a fallback for cursor formats LoadImageA cannot load.
+		const loadHardware = 0x492368
+		cursorLoader := stubRVA + len(stub)
+		stub = append(stub, hexBytes(
+			"8b4424046a106a006a006a02506a00"+ // LoadImageA(NULL, path, IMAGE_CURSOR, 0, 0, LR_LOADFROMFILE).
+				"ff158405a80085c0750a"+ // On success return the new cursor handle.
+				"ff742404ff158805a800"+ // Fall back to LoadCursorFromFileA(path).
+				"c20400")...)
+		patches = append(patches, instructionPatch{
+			loadHardware, hexBytes("ff158805a800"),
+			append(relativeInstruction(0xe8, loadHardware, cursorLoader), 0x90),
+		},
+			// The software path already calls LoadImageA. Clear LR_DEFAULTSIZE.
+			instruction(0x4923a6, "6a50", "6a10"))
+		// GetDIBits supplies straight BGRA for HD color cursors. The
+		// original conversion forces that alpha to 255 before applying
+		// the AND mask. Keep supplied alpha and retain the opaque fill
+		// for monochrome and legacy color cursors with no alpha channel.
+		var softwareAlpha instructionPatch
+		stub, softwareAlpha = appendStub(stub, stubRVA, 0x49253d,
+			hexBytes("3bf374118b45348d44b0fc804803ff83e8044e75f6"),
+			hexBytes("85f6742c837d5400741189f18b453480780300751983c0044975f4"+
+				"8b45348d44b0fc804803ff83e8044e75f6eb0231f6"))
+		patches = append(patches, softwareAlpha)
+	}
+	if options.loadingPreview {
+		const site = 0x377149
+		const loadThumbnail = 0x1dda40
+		const bufferFactory = 0x90ddf1
+		expandRVA := stubRVA + len(stub)
+		stub = append(stub, expandLoadingPreview...)
+		wrapperRVA := stubRVA + len(stub)
+		// Replay the cdecl thumbnail load. Only the loading-screen caller
+		// switches to the larger buffers. The normal paint path centers
+		// and blends them using the actual buffer dimensions.
+		stub = append(stub, bytes.Repeat(hexBytes("ff742414"), 5)...)
+		stub = append(stub, relativeInstruction(0xe8, stubRVA+len(stub), loadThumbnail)...)
+		stub = append(stub, hexBytes("83c41484c0")...)
+		loadFailed := len(stub)
+		stub = append(stub, 0x74, 0)    // Return immediately on load failure.
+		stub = append(stub, 0x50, 0x68) // Save the stock return value and pass the factory.
+		stub = little.AppendUint32(stub, bufferFactory)
+		stub = append(stub, hexBytes("ff742414ff742414")...) // Coverage and color output pointers.
+		stub = append(stub, relativeInstruction(0xe8, stubRVA+len(stub), expandRVA)...)
+		stub = append(stub, hexBytes("83c40c58")...)
+		stub[loadFailed+1] = byte(len(stub) - loadFailed - 2)
+		stub = append(stub, 0xc3)
+		patches = append(patches, instructionPatch{site,
+			relativeInstruction(0xe8, site, loadThumbnail), relativeInstruction(0xe8, site, wrapperRVA)})
+	}
+	// The native wheel handler already turns wheel delta into a row count.
+	// Redirect only its relative-scroll call; the helper recognizes the
+	// Audio Options grid and delegates every other grid to the stock call.
+	playlistRVA := stubRVA + len(stub)
+	stub = append(stub, scrollPlaylist...)
+	wheelBody := hexBytes("83c1fc50")
+	wheelBody = append(wheelBody, relativeInstruction(0xe8, stubRVA+len(stub)+len(wheelBody), playlistRVA)...)
+	var wheel instructionPatch
+	stub, wheel = appendStub(stub, stubRVA, 0x5a5f89, hexBytes("83c1fc8b3150ff567c"), wheelBody)
+	patches = append(patches, wheel)
+	if options.regionMap {
+		stub, patches = patchRegionMap(data, stub, stubRVA, patches)
 	}
 	for _, patch := range patches {
 		offset := rawStart + patch.rva - rva
@@ -375,15 +445,9 @@ func patchUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		}
 	}
 
-	if textureScale == 4 {
-		var err error
-		data, err = appendUISection(data, pe, text, stubRVA, stub)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		copy(data[stubStart:stubEnd], stub)
-		little.PutUint32(data[text+8:], uint32(stubRVA-rva+len(stub)))
+	data, err := appendUISection(data, pe, text, stubRVA, stub)
+	if err != nil {
+		return nil, err
 	}
 	little.PutUint16(data[pe+22:], little.Uint16(data[pe+22:])|0x20)
 	little.PutUint32(data[pe+88:], peChecksum(data, pe+88))
@@ -434,6 +498,9 @@ func peChecksum(data []byte, field int) uint32 {
 func runUIExecutable(args []string) error {
 	flags := flag.NewFlagSet("patch-ui-exe", flag.ContinueOnError)
 	scale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
+	hdCursors := flags.Bool("hd-cursors", false, "enable the HD game cursor loader")
+	regionMap := flags.Bool("region-map-2x", false, "double the region map")
+	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -448,7 +515,7 @@ func runUIExecutable(args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err = patchUIExecutable(data, *scale)
+	data, err = patchUIExecutable(data, *scale, uiExecutableOptions{hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap})
 	if err != nil {
 		return err
 	}

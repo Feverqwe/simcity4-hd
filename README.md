@@ -69,6 +69,6 @@ Preview the launch arguments with `& $builder launch $testGame $profile`. When r
 
 ## Preview status
 
-The ×4 packages are a development preview. The reference build was tested in-game at 3840 × 2160. In Audio Options, the last playlist track may remain clipped at the end of the scroll range. Minor artifacts can appear at the ends of the City Opinion Polls meters.
+The ×4 packages are a development preview. The reference build was tested in-game at 3840 × 2160. Minor artifacts can appear at the ends of the City Opinion Polls meters.
 
-City and region zoom are stock. The launcher requests 4K by default.
+The launcher requests 4K by default. For larger cursors, a doubled region map and a doubled city loading preview, add `-hd-cursors -region-map-2x -loading-preview-2x` to the `ui` command. Each option can also be used on its own.

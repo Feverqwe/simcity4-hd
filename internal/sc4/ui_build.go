@@ -483,6 +483,9 @@ type uiPackage struct {
 func runBuildUI(args []string) (result error) {
 	flags := flag.NewFlagSet("ui", flag.ContinueOnError)
 	textureScale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
+	hdCursors := flags.Bool("hd-cursors", false, "build experimental HD game cursors")
+	regionMap := flags.Bool("region-map-2x", false, "double the region map")
+	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
 	distro := flags.String("wsl-distro", "", "WSL distribution for inference")
 	python := flags.String("wsl-python", "python3", "Python interpreter in WSL")
 	weights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
@@ -501,7 +504,9 @@ func runBuildUI(args []string) (result error) {
 	if err != nil {
 		return err
 	}
-	executable, err = patchUIExecutable(executable, *textureScale)
+	executable, err = patchUIExecutable(executable, *textureScale, uiExecutableOptions{
+		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap,
+	})
 	if err != nil {
 		return err
 	}
@@ -570,6 +575,13 @@ func runBuildUI(args []string) (result error) {
 	if err != nil {
 		return fmt.Errorf("build Disasters background: %w", err)
 	}
+	var cursors []resource
+	if *hdCursors {
+		cursors, err = cursorEntries(stock, art)
+		if err != nil {
+			return fmt.Errorf("build cursors: %w", err)
+		}
+	}
 	if *textureScale == 2 {
 		if err := closeWorker(); err != nil {
 			return err
@@ -604,6 +616,9 @@ func runBuildUI(args []string) (result error) {
 	}
 	if len(credits) != 0 {
 		packages = append(packages, uiPackage{"credits-text.dat", credits})
+	}
+	if len(cursors) != 0 {
+		packages = append(packages, uiPackage{"cursors-hd.dat", cursors})
 	}
 	return publishUI(output, executable, packages)
 }
