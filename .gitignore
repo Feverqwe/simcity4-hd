@@ -22,7 +22,8 @@ venv/
 /output/
 /cache/
 
-# Local diagnostics, captures and generated files
+# Local agent files, diagnostics and generated files
+/AGENTS.md
 /_local/
 /captures/
 /samples/
