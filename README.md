@@ -9,7 +9,7 @@ The Windows builder creates the mod from your local game installation. You suppl
 - **SimCity 4 Deluxe on Steam**, build 4644414, with the original Windows executable version 1.1.641.0. The builder checks the executable fingerprint. The reference installation used the English locale.
 - **WSL 2** with Python 3.12 and a CUDA-capable NVIDIA setup. The reference build used an RTX 5070 Ti and PyTorch 2.11 with CUDA 12.8.
 - Free disk space for the WSL environment, inference cache and test profile. Allow disk space for the ×4 texture cache, the built packages, and a separate test profile.
-- A renderer capable of native 3840 × 2160. The reference profile used [SCD3D11 v0.4.7](https://github.com/caspervg/scd3d11/releases/tag/v0.4.7).
+- A renderer capable of native 3840 × 2160. For SCD3D11, download [v0.5.0](https://github.com/caspervg/scd3d11/releases/tag/v0.5.0).
 
 ## Set up inference in WSL
 
