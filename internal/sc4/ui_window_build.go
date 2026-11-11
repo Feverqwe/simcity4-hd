@@ -135,9 +135,10 @@ func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureSc
 			}
 			if usesStockWindowAlpha(joinID) {
 				edgeFrames := 0
-				if joinID.group == 0xe74a40b7 && joinID.instance == 0xbdd0852c {
-					// The model lightens visible pixels next to the transparent
-					// white padding of the Add My Sim button.
+				if (joinID.group == 0xe74a40b7 && joinID.instance == 0xbdd0852c) ||
+					(joinID.group == 0xe74a40b6 && joinID.instance == 0xa0653af9) {
+					// The model brightens the Add My Sim border and the
+					// corners of the Polls outline where it covers the fill.
 					edgeFrames = asset.atlas.frames
 				}
 				data, err = preserveStockAlpha(original, data, artScale, edgeFrames)

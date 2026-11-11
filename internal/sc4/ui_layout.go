@@ -87,6 +87,15 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 			line = strings.NewReplacer("icongutter=3", "icongutter=6",
 				"rowheight=16", rowHeight, "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
 		}
+		if instance == 0x4bc906b5 && strings.Contains(line, "image={46a006b0,14015585}") {
+			// Align the Environment, Traffic and Education outlines with
+			// their centered score fills and the contours on the panel.
+			line = strings.NewReplacer(
+				"area=(32,67,136,78)", "area=(32,67,133,78)",
+				"area=(31,111,132,122)", "area=(32,111,133,122)",
+				"area=(194,111,295,122)", "area=(195,111,296,122)",
+			).Replace(line)
+		}
 		driveMinimize := textureScale == 4 && w.group == 0xe74a40be &&
 			strings.Contains(line, " id=0x2c16c9cb ") && strings.Contains(line, "image={46a006b0,53244588}")
 		if driveMinimize {
