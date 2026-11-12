@@ -16,6 +16,8 @@ The full texture pack uses about 20 GiB, with additional space for the cache and
 
 Setup defaults to ×2 textures downscaled from ×4. Choose ×4 in **Advanced options**.
 
+Choose **Русский** under **Advanced options → Game language** to use the Russian interface with UHD. Setup selects Russian automatically on a fresh installation when the Windows interface is in Russian. To switch back, choose **Game default** in **Configure**.
+
 By default, setup uses the `SimCity4UHDCache` folder next to the installer EXE. To reuse a cache from another location, select its folder in **Advanced options**.
 
 To change a mod installed through setup, close the game, reopen setup, and select **Configure**. Change the options and select **Apply changes**. Setup keeps disabled world textures available for later use. Select **Remove mod** to remove the installation and keep the texture cache.

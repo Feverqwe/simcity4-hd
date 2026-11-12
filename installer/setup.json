@@ -38,6 +38,18 @@
       "group": "Interface"
     },
     {
+      "id": "language",
+      "label": "Game language",
+      "default": "game",
+      "localeDefaults": { "ru": "russian" },
+      "localeDefaultFiles": ["Russian/russian.sc4pack"],
+      "requires": "ui",
+      "values": [
+        { "value": "game", "label": "Game default" },
+        { "value": "russian", "label": "Русский" }
+      ]
+    },
+    {
       "id": "hd-cursors",
       "label": "Larger game cursors",
       "default": true,

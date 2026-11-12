@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const stockEXEHash = "f9b059d29940d1a28c89e6d6a7ab147e9762cd03134cdbaf02ba0e0142e1a176"
@@ -372,22 +373,16 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	for _, template := range []struct {
 		offset int
 		text   string
-		size   byte
 	}{
-		{0x683820, `<FONT COLOR="#8e9499" FACE="Arta" SIZE=3><I>`, '5'},
-		{0x683850, `<FONT COLOR="#3f4967" FACE="Arta" SIZE=3><I>`, '5'},
-		{0x683880, ` FACE="StocletITC TT" SIZE=3><B>`, '5'},
+		{0x683820, `<FONT COLOR="#8e9499" FACE="Arta" SIZE=3><I>`},
+		{0x683850, `<FONT COLOR="#3f4967" FACE="Arta" SIZE=3><I>`},
+		{0x683880, ` FACE="StocletITC TT" SIZE=3><B>`},
 	} {
-		start := int(little.Uint32(data[rdata+20:]))
-		end := template.offset + len(template.text)
-		if template.offset < start || end > start+int(little.Uint32(data[rdata+16:])) ||
-			string(data[template.offset:end]) != template.text {
-			return nil, fmt.Errorf("unexpected news HTML template at offset %#x", template.offset)
+		updated := strings.Replace(template.text, "SIZE=3", "SIZE=5", 1)
+		if err := patchUIString(data, rdata, template.offset, template.text, updated); err != nil {
+			return nil, err
 		}
-		offset := bytes.Index([]byte(template.text), []byte("SIZE=3")) + len("SIZE=")
-		data[template.offset+offset] = template.size
 	}
-
 	for i := 0; i < newsMarkerCount; i++ {
 		at := 0x6837f4 - i*0x2c
 		original := fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, catalogFrameGroup, newsMarkerFirst+i)
@@ -405,6 +400,20 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	little.PutUint16(data[pe+22:], little.Uint16(data[pe+22:])|0x20)
 	little.PutUint32(data[pe+88:], peChecksum(data, pe+88))
 	return data, nil
+}
+
+func patchUIString(data []byte, section, offset int, original, updated string) error {
+	start := int(little.Uint32(data[section+20:]))
+	end := offset + len(original)
+	slotEnd := offset + max(len(original), len(updated)) + 1
+	if offset < start || slotEnd > start+int(little.Uint32(data[section+16:])) ||
+		string(data[offset:end]) != original || len(bytes.Trim(data[end:slotEnd], "\x00")) != 0 {
+		return fmt.Errorf("unexpected UI string at offset %#x", offset)
+	}
+	slot := data[offset:slotEnd]
+	clear(slot)
+	copy(slot, updated)
+	return nil
 }
 
 func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {

@@ -46,6 +46,16 @@ $inference = @(
 
 Run either command on its own or build both. Each build needs a new output directory. The first build can take several hours. Keep the cache to reuse completed textures. Each output contains `Plugins`. The UI output also includes a patched `SimCity4-hd.exe`. Install it with the `Plugins` from the same UI build. Rebuild UI after changing the game's language so tutorial text comes from the correct archive.
 
+### Build with Russian text
+
+Unpack the Russian resources with `simcity4-uhd russian-pack unpack
+installer/resources/russian.sc4pack russian-source`, then add
+`-russian russian-source` to the `ui` command.
+Use the generated executable, `Plugins`, and `Fonts` together in the isolated
+game copy. Back up its original `Fonts` directory before copying the Cyrillic
+fonts. To return to the original language, restore the original fonts and switch
+to a UI build made without `-russian`.
+
 ### Install in an isolated profile
 
 Copy the game into a separate test directory and put the patched UI executable in that copy. Use a fresh profile path without spaces. The example stages both builds and copies the stock regions. You can pass one build's `Plugins` directory to stage just that build. For World on its own, keep the game executable from the copied installation.

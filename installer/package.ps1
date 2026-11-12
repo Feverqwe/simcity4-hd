@@ -5,7 +5,8 @@ param(
     [string]$QtRoot = $env:QT_ROOT_DIR,
     [string]$Generator = 'MinGW Makefiles',
     [Parameter(Mandatory)]
-    [string]$Backend
+    [string]$Backend,
+    [string]$RussianSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,14 @@ try {
 
     Copy-Item -LiteralPath $Backend -Destination (Join-Path $stage 'app.exe')
     Copy-SetupArtwork (Join-Path $PSScriptRoot '../assets/screenshot.jpg') (Join-Path $stage 'screenshot.jpg')
+    $russian = Join-Path $stage 'Russian/russian.sc4pack'
+    if ($RussianSource) {
+        Invoke-Checked $Backend @('russian-pack', 'pack', $RussianSource, $russian)
+    } else {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $russian) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'resources/russian.sc4pack') -Destination $russian
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'resources/FONT-LICENSES.txt') -Destination $stage
 
     Invoke-Checked cmake @('-S', (Join-Path $PSScriptRoot 'qt'), '-B', $build, '-G', $Generator,
         "-DCMAKE_PREFIX_PATH=$QtRoot", '-DCMAKE_BUILD_TYPE=Release')

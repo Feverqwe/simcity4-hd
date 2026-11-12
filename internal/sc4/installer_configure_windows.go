@@ -54,8 +54,14 @@ func worldPackage(name string) (option, scale string) {
 
 func isInterfacePackage(name string) bool {
 	switch name {
-	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat", "cursors-hd-x4.dat":
+	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat", "cursors-hd-x4.dat",
+		russianTextPackage, installedRussianPack:
 		return true
+	}
+	for _, font := range russianFontFiles {
+		if name == originalRussianFont(font) {
+			return true
+		}
 	}
 	base, found := strings.CutSuffix(name, "-x4.dat")
 	if !found {
@@ -112,7 +118,10 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 	if err != nil {
 		return installedSettings{}, uiExecutableOptions{}, err
 	}
-	settings := installedSettings{Options: make(map[string]bool)}
+	settings := installedSettings{
+		Options: make(map[string]bool),
+		Choices: map[string]string{"language": "game"},
+	}
 	settings.Options["ui"] = executableHash(executable) != stockEXEHash
 	settings.Options["world"] = false
 	var ui uiExecutableOptions
@@ -131,7 +140,10 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 		if fileExists(filepath.Join(active, "city-hud-x2.dat")) {
 			scale = "2"
 		}
-		settings.Choices = map[string]string{"texture-scale": scale}
+		settings.Choices["texture-scale"] = scale
+	}
+	if hasInstalledRussian(active) {
+		settings.Choices["language"] = "russian"
 	}
 	worldScale := ""
 	for _, entry := range entries {
@@ -172,8 +184,8 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 				settings.Options[option] = false
 			}
 		}
-		if settings.Choices == nil {
-			settings.Choices = map[string]string{"texture-scale": worldScale}
+		if settings.Choices["texture-scale"] == "" {
+			settings.Choices["texture-scale"] = worldScale
 		}
 	}
 	graphics, err := os.ReadFile(filepath.Join(plugins, graphicsINI))
@@ -459,8 +471,10 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	scale := strconv.Itoa(desired.textureScale)
 	cursorScaleChanged := desired.interfaceOptions.hdCursors &&
 		fileExists(filepath.Join(game, "Plugins", modFolder, "cursors-hd-x4.dat")) != (scale == "4")
+	wasRussian := settings.Choices["language"] == "russian"
 	rebuildUI := desired.ui && (!settings.Options["ui"] || desired.interfaceOptions != oldUI ||
-		scale != settings.Choices["texture-scale"] || cursorScaleChanged)
+		scale != settings.Choices["texture-scale"] || cursorScaleChanged || desired.russian != wasRussian ||
+		desired.russian && !fileExists(filepath.Join(game, "Plugins", modFolder, russianTextPackage)))
 	replaceEXE := rebuildUI || !desired.ui && settings.Options["ui"]
 	var stock []byte
 	if replaceEXE {
@@ -600,7 +614,17 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	progress := installerBuildProgress(&deps, &phase)
 	uiStage, worldStage := filepath.Join(work, "UI"), filepath.Join(work, "World")
 	var generated []string
+	previousRussian := ""
+	if wasRussian {
+		previousRussian = active
+	}
 	if rebuildUI {
+		if desired.russian {
+			desired.russianSource, err = stageSetupRussianSource(work, previousRussian)
+			if err != nil {
+				return err
+			}
+		}
 		if err := buildUIFromExecutable(ctx, setupUIArgs(desired, game, cache, uiStage), progress, bytes.Clone(stock)); err != nil {
 			return err
 		}
@@ -632,6 +656,13 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		}
 	}
 	replacements := []setupReplacement{{newActive, active}}
+	if wasRussian != desired.russian || desired.russian && rebuildUI {
+		fontChanges, err := stageSetupRussianFonts(game, work, previousRussian, newActive, desired.russianSource, uiStage)
+		if err != nil {
+			return err
+		}
+		replacements = append(replacements, fontChanges...)
+	}
 	parked, err := os.ReadDir(newInactive)
 	if err != nil {
 		return err
@@ -795,6 +826,13 @@ func removeHD(game string) error {
 			return err
 		}
 		changes = append(changes, setupReplacement{staged, target})
+	}
+	if hasInstalledRussian(active) {
+		fontChanges, err := stageSetupRussianFonts(game, work, active, "", "", "")
+		if err != nil {
+			return err
+		}
+		changes = append(changes, fontChanges...)
 	}
 	changes = append(changes, setupReplacement{target: active}, setupReplacement{target: filepath.Join(game, inactiveWorldFolder)})
 	return applySetupReplacements(work, changes, &keepWork)

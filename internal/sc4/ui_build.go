@@ -474,6 +474,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	cursorScale := flags.Int("cursor-scale", 2, "HD cursor size (2 or 4)")
 	regionMap := flags.Bool("region-map-2x", false, "double the region map")
 	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
+	russian := flags.String("russian", "", "directory with the Russian locale and replacement fonts")
 	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -492,6 +493,28 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		return errors.New("cursor scale must be 2 or 4")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
+	locale := filepath.Join(game, "SimCityLocale.DAT")
+	var russianText []resource
+	var fonts map[string][]byte
+	if *russian != "" {
+		locale = filepath.Join(*russian, russianLocaleFile)
+		fonts, err = readRussianFonts(*russian)
+		if err != nil {
+			return err
+		}
+		russianText, err = russianUI(locale)
+		if err != nil {
+			return err
+		}
+	}
+	tutorial, err := tutorialEntries(locale)
+	if err != nil {
+		return err
+	}
+	credits, err := creditsEntries(locale)
+	if err != nil {
+		return err
+	}
 	// Validate the executable fingerprint before doing potentially lengthy inference.
 	if executable == nil {
 		executable, err = os.ReadFile(filepath.Join(game, "Apps", "SimCity 4.exe"))
@@ -591,15 +614,6 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	if err := closeWorker(); err != nil {
 		return err
 	}
-	locale := filepath.Join(game, "SimCityLocale.DAT")
-	tutorial, err := tutorialEntries(locale)
-	if err != nil {
-		return err
-	}
-	credits, err := creditsEntries(locale)
-	if err != nil {
-		return err
-	}
 	packages := []uiPackage{
 		{"city-hud-" + suffix + ".dat", hud},
 		{"catalog-square-" + suffix + ".dat", square},
@@ -607,10 +621,28 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		{"catalog-chrome-" + suffix + ".dat", chrome},
 		{"disasters-background-" + suffix + ".dat", disasters},
 		{"mysim-portraits-" + suffix + ".dat", portraits},
-		{"tutorial-text-size-7.dat", tutorial},
 	}
-	if len(credits) != 0 {
-		packages = append(packages, uiPackage{"credits-text.dat", credits})
+	if *russian == "" {
+		packages = append(packages, uiPackage{"tutorial-text-size-7.dat", tutorial})
+		if len(credits) != 0 {
+			packages = append(packages, uiPackage{"credits-text.dat", credits})
+		}
+	} else {
+		resized := make(map[resourceID][]byte, len(tutorial)+len(credits))
+		for _, entry := range append(tutorial, credits...) {
+			resized[entry.id] = entry.data
+		}
+		for i := range russianText {
+			entry := &russianText[i]
+			if data := resized[entry.id]; data != nil {
+				entry.data = data
+			}
+			entry.data, err = normalizeRussianText(entry.data)
+			if err != nil {
+				return fmt.Errorf("Russian locale %s: %w", entry.id, err)
+			}
+		}
+		packages = append(packages, uiPackage{russianTextPackage, russianText})
 	}
 	if len(cursors) != 0 {
 		name := "cursors-hd.dat"
@@ -623,10 +655,10 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		return err
 	}
 	progress.report("Packing interface files")
-	return publishUI(output, executable, packages)
+	return publishUI(output, executable, packages, fonts)
 }
 
-func publishUI(output string, executable []byte, packages []uiPackage) error {
+func publishUI(output string, executable []byte, packages []uiPackage, fonts map[string][]byte) error {
 	owners := make(map[resourceID]string)
 	for _, p := range packages {
 		for _, entry := range p.entries {
@@ -658,6 +690,19 @@ func publishUI(output string, executable []byte, packages []uiPackage) error {
 	if err := os.WriteFile(filepath.Join(stage, "SimCity4-hd.exe"), executable, 0755); err != nil {
 		return err
 	}
+
+	if len(fonts) != 0 {
+		dir := filepath.Join(stage, "Fonts")
+		if err := os.Mkdir(dir, 0755); err != nil {
+			return err
+		}
+		for name, data := range fonts {
+			if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+				return err
+			}
+		}
+	}
+
 	if err := os.Rename(stage, output); err != nil {
 		return err
 	}

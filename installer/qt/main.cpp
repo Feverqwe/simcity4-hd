@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <algorithm>
 #include <cstdio>
 
@@ -165,6 +166,25 @@ QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
     return picker;
 }
 
+QString defaultChoice(const QJsonObject &option, const QDir &assets, const QString &uiLanguage) {
+    const auto fallback = option.value("default").toString();
+    const auto language = uiLanguage.section('-', 0, 0).section('_', 0, 0).toLower();
+    const auto localized = option.value("localeDefaults").toObject().value(language).toString();
+    if (localized.isEmpty())
+        return fallback;
+
+    const auto files = option.value("localeDefaultFiles").toArray();
+    auto hasFiles = [&files](const QDir &dir) {
+        return std::all_of(files.begin(), files.end(), [&dir](const auto &file) {
+            return QFileInfo(dir.filePath(file.toString())).isFile();
+        });
+    };
+    const auto setupDir = qEnvironmentVariable("SETUP_EXE_DIR");
+    if (hasFiles(assets) || (!setupDir.isEmpty() && hasFiles(QDir(setupDir))))
+        return localized;
+    return fallback;
+}
+
 class Setup : public QDialog {
 public:
     explicit Setup(QString program, QJsonObject manifest, const QDir &assets = QDir())
@@ -238,6 +258,7 @@ public:
         if (!options.isEmpty()) {
             auto *list = new QWidget;
             auto *rows = new QVBoxLayout(list);
+            const auto uiLanguage = QLocale::system().uiLanguages().value(0);
             for (const auto &value : options) {
                 const auto info = value.toObject();
                 const auto id = info.value("id").toString();
@@ -258,7 +279,7 @@ public:
                         const auto item = value.toObject();
                         picker->addItem(item.value("label").toString(), item.value("value").toString());
                     }
-                    const int defaultIndex = qMax(0, picker->findData(info.value("default").toString()));
+                    const int defaultIndex = qMax(0, picker->findData(defaultChoice(info, assets, uiLanguage)));
                     picker->setCurrentIndex(defaultIndex);
                     picker->setAccessibleName(label);
                     auto *row = new QHBoxLayout;

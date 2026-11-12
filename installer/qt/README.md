@@ -16,7 +16,10 @@ switches, each with an `id`, `label`, and boolean `default`. An optional
 `group` starts a titled group. An optional `requires` names a preceding
 checkbox; dependent options are disabled when their parent is off.
 For a dropdown, provide a `values` array of string `value` and `label`
-pairs and a string `default`. Set `artwork` to an optional image path relative to the
+pairs and a string `default`. Optionally map system UI language codes to
+dropdown values in `localeDefaults`. If `localeDefaultFiles` lists files,
+the localized default requires those files beside the manifest or the setup
+executable. Set `artwork` to an optional image path relative to the
 manifest to show a branded header. The optional `displayResolution`
 object adds a display mode picker with a flag `id` and a `fallback` in
 `WIDTHxHEIGHT` format. The optional `icon` path sets the window icon. Set `completionUrl` and

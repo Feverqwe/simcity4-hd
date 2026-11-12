@@ -78,7 +78,7 @@ func moveSetupPath(source, target string, replace bool) error {
 	return nil
 }
 
-func publishMod(ctx context.Context, game, work, stage, patched string, stock []byte, renderer []string, graphics string, options setupOptions, keepWork *bool) (result error) {
+func publishMod(ctx context.Context, game, work, stage, patched string, stock []byte, renderer []string, graphics string, options setupOptions, fontChanges []setupReplacement, keepWork *bool) (result error) {
 	apps, plugins := filepath.Join(game, "Apps"), filepath.Join(game, "Plugins")
 	exe := filepath.Join(apps, gameEXE)
 	hash := stockEXEHash
@@ -250,6 +250,9 @@ func publishMod(ctx context.Context, game, work, stage, patched string, stock []
 				}
 			}
 		}()
+	}
+	if len(fontChanges) != 0 {
+		return applySetupReplacements(work, append(fontChanges, setupReplacement{patched, exe}), keepWork)
 	}
 	if patched != "" {
 		return moveSetupPath(patched, exe, true)

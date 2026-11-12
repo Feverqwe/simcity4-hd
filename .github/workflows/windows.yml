@@ -54,6 +54,13 @@ jobs:
               (Get-FileHash -Algorithm SHA256 (Join-Path $runtime 'app.exe')).Hash.ToLowerInvariant() -cne $expected) {
             throw 'The self-contained setup does not contain the verified builder.'
           }
+          $pack = Join-Path $runtime 'Russian/russian.sc4pack'
+          $source = (Get-FileHash -Algorithm SHA256 -LiteralPath 'installer/resources/russian.sc4pack').Hash
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $pack).Hash -cne $source) {
+            throw 'The self-contained setup contains a different Russian language pack.'
+          }
+          & (Join-Path $runtime 'app.exe') russian-pack unpack $pack (Join-Path $runtime 'russian-check')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Remove-Item -LiteralPath $runtime -Recurse
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath "dist/$name").Hash.ToLowerInvariant()
           [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")

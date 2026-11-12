@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const usage = "Usage: simcity4-uhd <ui|world|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|stage-profile|launch> ..."
+const usage = "Usage: simcity4-uhd <ui|world|russian-pack|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|stage-profile|launch> ..."
 
 // Run dispatches the command line and returns the process exit code.
 func Run(args []string, version string) int {
@@ -30,6 +30,8 @@ func Run(args []string, version string) int {
 		err = runBuildUI(args[1:])
 	case "world":
 		err = runBuildWorld(args[1:])
+	case "russian-pack":
+		err = runRussianPack(args[1:])
 	case "verify":
 		err = verifyPackages(args[1:], os.Stdout)
 	case "tutorial":

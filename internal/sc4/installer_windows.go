@@ -101,11 +101,12 @@ func fileExists(path string) bool {
 }
 
 type setupOptions struct {
-	ui, skipIntro, drawStats bool
-	interfaceOptions         uiExecutableOptions
-	world                    worldSelection
-	width, height            int
-	textureScale             int
+	ui, skipIntro, drawStats, russian bool
+	russianSource                     string
+	interfaceOptions                  uiExecutableOptions
+	world                             worldSelection
+	width, height                     int
+	textureScale                      int
 }
 
 type setupInputError struct {
@@ -162,6 +163,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	game := flags.String("game", "", "original Steam game directory")
 	cache := flags.String("cache", filepath.Join(data, "Cache"), "texture cache directory")
 	ui := flags.Bool("ui", true, "upscale interface textures and apply UI fixes")
+	language := flags.String("language", "game", "game language (game or russian)")
 	textureScale := flags.Int("texture-scale", 2, "texture and cursor scale (2 or 4)")
 	world := flags.Bool("world", true, "upscale world textures")
 	network := flags.Bool("network", true, "upscale roads and rail")
@@ -204,6 +206,12 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		emit(installEvent{Type: "removed"})
 		return nil
 	case "install", "configure":
+		if *language != "game" && *language != "russian" {
+			return errors.New("Choose the game's current language or Russian.")
+		}
+		if *language == "russian" && !*ui {
+			return errors.New("Russian requires the UHD interface option.")
+		}
 		if *textureScale != 2 && *textureScale != 4 {
 			return errors.New("Choose a texture scale of 2 or 4.")
 		}
@@ -243,7 +251,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 			return ctx.Err()
 		}
 		options := setupOptions{
-			ui: *ui, skipIntro: *skipIntro, drawStats: *drawStats,
+			ui: *ui, skipIntro: *skipIntro, drawStats: *drawStats, russian: *language == "russian",
 			width: width, height: height,
 			textureScale:     *textureScale,
 			interfaceOptions: uiExecutableOptions{hdCursors: *hdCursors, regionMap: *regionMap, loadingPreview: *loadingPreview},
@@ -371,6 +379,12 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		}
 		var patched string
 		var packageDirs []string
+		if options.russian {
+			options.russianSource, err = stageSetupRussianSource(work, "")
+			if err != nil {
+				return err
+			}
+		}
 		if options.ui {
 			if err := buildUIWithProgress(ctx, setupUIArgs(options, game, cache, ui), progress); err != nil {
 				return err
@@ -425,7 +439,14 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 			return err
 		}
 		progress.report("Applying the mod to the game folder")
-		return publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options, &keepWork)
+		var fontChanges []setupReplacement
+		if options.russian {
+			fontChanges, err = stageSetupRussianFonts(game, work, "", stage, options.russianSource, ui)
+			if err != nil {
+				return err
+			}
+		}
+		return publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options, fontChanges, &keepWork)
 	}
 	err = run()
 	if err != nil && ctx.Err() != nil && !keepWork {
@@ -438,14 +459,17 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 }
 
 func setupUIArgs(options setupOptions, game, cache, output string) []string {
-	return []string{
+	args := []string{
 		fmt.Sprintf("-texture-scale=%d", options.textureScale),
 		fmt.Sprintf("-cursor-scale=%d", options.textureScale),
 		fmt.Sprintf("-hd-cursors=%t", options.interfaceOptions.hdCursors),
 		fmt.Sprintf("-region-map-2x=%t", options.interfaceOptions.regionMap),
 		fmt.Sprintf("-loading-preview-2x=%t", options.interfaceOptions.loadingPreview),
-		game, cache, output,
 	}
+	if options.russianSource != "" {
+		args = append(args, "-russian", options.russianSource)
+	}
+	return append(args, game, cache, output)
 }
 
 func setupWorldArgs(scale int, game, cache, output string) []string {

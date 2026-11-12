@@ -6,6 +6,7 @@ venv/
 *.DAT
 *.sc4
 *.SC4*
+!/installer/resources/russian.sc4pack
 *.fsh
 *.safetensors
 *.pth
