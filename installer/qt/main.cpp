@@ -220,6 +220,8 @@ public:
             const bool inspectOnChange = info.value("inspectOnChange").toBool();
             auto *edit = addPath(form, info.value("label").toString(), initial, info.value("browse").toString(), inspectOnChange);
             fields.append({id, info, edit});
+            if (inspectOnChange)
+                inspectedPaths.insert(id, edit->text().trimmed());
             connect(edit, &QLineEdit::textChanged, this, [this, id] {
                 if (fieldToFix == id)
                     clearFieldError();
@@ -317,7 +319,8 @@ public:
         connect(&process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
             logLine("process", process.errorString().toUtf8());
             if (error == QProcess::FailedToStart) {
-                showError(tr("Setup could not start. Try opening the installer again."));
+                if (!inspecting || !inspectionOutdated())
+                    showError(tr("Setup could not start. Try opening the installer again."));
                 settle();
             }
         });
@@ -331,7 +334,7 @@ public:
             logLine("process", QStringLiteral("Exit code %1 (%2)").arg(code)
                         .arg(exit == QProcess::NormalExit ? "normal exit" : "crash").toUtf8());
             const bool failed = code != 0 || exit != QProcess::NormalExit;
-            if ((failed && completed) || ((running || failed) && !reported))
+            if (!inspectionOutdated() && ((failed && completed) || ((running || failed) && !reported)))
                 showError(tr("Setup stopped unexpectedly. Try again."));
             settle();
         });
@@ -479,11 +482,19 @@ private:
                 inspectSelection();
         });
         if (inspectOnChange)
-            connect(edit, &QLineEdit::editingFinished, this, [this, edit] {
-                if (edit->text().trimmed() != inspectedPath)
+            connect(edit, &QLineEdit::editingFinished, this, [this] {
+                if (inspectionOutdated())
                     inspectSelection();
             });
         return edit;
+    }
+
+    bool inspectionOutdated() const {
+        for (const auto &field : fields)
+            if (field.info.value("inspectOnChange").toBool() &&
+                field.edit->text().trimmed() != inspectedPaths.value(field.id))
+                return true;
+        return false;
     }
 
     void inspectSelection() {
@@ -503,9 +514,15 @@ private:
             option.box->setChecked(option.defaultChecked);
         if (resolution)
             resolution->setCurrentIndex(0);
+        // Reset paths loaded from a previous installation, while keeping user edits.
+        for (const auto &field : fields) {
+            if (installedPaths.contains(field.id) && field.edit->text() == installedPaths.value(field.id))
+                field.edit->setText(expandPath(field.info.value("default").toString()));
+        }
+        installedPaths.clear();
         for (const auto &field : fields)
             if (field.info.value("inspectOnChange").toBool())
-                inspectedPath = field.edit->text().trimmed();
+                inspectedPaths.insert(field.id, field.edit->text().trimmed());
         status->setText(tr("Checking the selected folder…"));
         primary->setEnabled(false);
         closeInstalled->hide();
@@ -625,6 +642,8 @@ private:
 
     void handleLine(const QByteArray &line) {
         logLine("event", line);
+        if (inspecting && inspectionOutdated())
+            return;
         const auto event = QJsonDocument::fromJson(line).object();
         const auto type = event.value("type").toString();
         const auto text = event.value("text").toString();
@@ -632,7 +651,9 @@ private:
             if (const auto *field = fieldById(event.value("field").toString())) {
                 field->edit->setText(QDir::toNativeSeparators(event.value("path").toString()));
                 if (inspecting && field->info.value("inspectOnChange").toBool())
-                    inspectedPath = field->edit->text().trimmed();
+                    inspectedPaths.insert(field->id, field->edit->text().trimmed());
+                else if (!field->info.value("inspectOnChange").toBool())
+                    installedPaths.insert(field->id, field->edit->text());
             }
         } else if (type == "step" && !stopping) {
             appendDetails(text.toUtf8() + '\n');
@@ -739,7 +760,7 @@ private:
             palette.setColor(QPalette::Base, QColor((base.red() * 3 + 255) / 4, base.green() * 3 / 4, base.blue() * 3 / 4));
             field->edit->setPalette(palette);
             field->edit->setAccessibleDescription(message);
-            advanced->setVisible(!reconfigurable);
+            advanced->show();
             advanced->setChecked(true);
         }
 
@@ -776,9 +797,14 @@ private:
     void settle() {
         fitHeight();
         const bool wasInstalling = running;
+        const bool inspectAgain = inspecting && inspectionOutdated();
         inspecting = false;
         running = false;
         stopping = false;
+        if (inspectAgain) {
+            inspectSelection();
+            return;
+        }
         bar->hide();
         pause->hide();
         primary->show();
@@ -792,11 +818,11 @@ private:
             primary->setText(tr("Back to start"));
         } else if (reconfigurable) {
             counter->hide();
-            advanced->hide();
+            advanced->setVisible(!fieldToFix.isEmpty());
             closeInstalled->show();
             removeInstalled->setVisible(!paused);
             if (!paused) {
-                if (!details->isVisible() || !wasInstalling)
+                if (!reported)
                     status->setText(config.value("installedText").toString(tr("Installation complete.")));
                 primary->setText(advanced->isChecked() ? tr("Apply changes") : tr("Configure"));
             }
@@ -832,7 +858,8 @@ private:
             });
     }
 
-    QString backend, launcher, fieldToFix, inspectedPath, operation;
+    QString backend, launcher, fieldToFix, operation;
+    QHash<QString, QString> inspectedPaths, installedPaths;
     QJsonObject config;
     QProcess process;
     QByteArray pending, diagnostics;

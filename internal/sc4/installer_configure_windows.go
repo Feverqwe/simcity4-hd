@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"debug/pe"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ const inactiveWorldFolder = ".simcity4hd-world"
 const installedCacheFile = "CachePath.txt"
 const installedFilesFile = "InstalledFiles.txt"
 const installedWorldSelectionFile = "WorldSelection.txt"
+const installedSettingsChangesFile = "SettingsChanges.json"
 
 var worldOptionIDs = []string{"network", "terrain", "models"}
 
@@ -222,6 +224,9 @@ func updateSetupINI(config, section, key, value string) string {
 		}
 		name, _, found := strings.Cut(trimmed, "=")
 		if inSection && found && strings.EqualFold(strings.TrimSpace(name), key) {
+			if value == "" {
+				return strings.Join(slices.Delete(lines, i, i+1), "\n")
+			}
 			lines[i] = key + "=" + value + lineEnding
 			return strings.Join(lines, "\n")
 		}
@@ -237,6 +242,105 @@ func updateSetupINI(config, section, key, value string) string {
 		return config + line
 	}
 	return strings.Join(lines[:insertAt], "\n") + "\n" + line + strings.Join(lines[insertAt:], "\n")
+}
+
+type setupINISetting struct {
+	Section, Key      string
+	Original, Applied string
+}
+
+// Only track settings changed in INIs which existed before setup installed the mod.
+type setupINIChanges map[string][]setupINISetting
+
+func loadSetupINIChanges(active string) (setupINIChanges, error) {
+	changes := make(setupINIChanges)
+	data, err := os.ReadFile(filepath.Join(active, installedSettingsChangesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return changes, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &changes); err != nil {
+		return nil, err
+	}
+	if changes == nil {
+		changes = make(setupINIChanges)
+	}
+	return changes, nil
+}
+
+func (changes setupINIChanges) save(stage string) error {
+	if len(changes) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(changes)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(stage, installedSettingsChangesFile), data, 0644)
+}
+
+func (changes setupINIChanges) edit(name, config string, options setupOptions, install, track bool) string {
+	stats := "off"
+	if options.drawStats {
+		stats = "on"
+	}
+	settings := []setupINISetting{{Section: "SCD3D11", Key: "DrawStats", Applied: stats}}
+	if name == graphicsINI {
+		settings = []setupINISetting{
+			{Section: "GraphicsOptions", Key: "WindowWidth", Applied: strconv.Itoa(options.width)},
+			{Section: "GraphicsOptions", Key: "WindowHeight", Applied: strconv.Itoa(options.height)},
+			{Section: "GraphicsOptions", Key: "EnableIntroVideo", Applied: strconv.FormatBool(!options.skipIntro)},
+		}
+		if install {
+			settings = append(settings,
+				setupINISetting{Section: "GraphicsOptions", Key: "Driver", Applied: "DirectX"},
+				setupINISetting{Section: "GraphicsOptions", Key: "ColorDepth", Applied: "32"},
+				setupINISetting{Section: "GraphicsOptions", Key: "WindowMode", Applied: "FullScreen"},
+			)
+		}
+	}
+	for _, setting := range settings {
+		value := setupINIValue(config, setting.Section, setting.Key)
+		if strings.EqualFold(value, setting.Applied) {
+			continue
+		}
+		if track {
+			setting.Original = value
+			previous := changes[name]
+			i := slices.IndexFunc(previous, func(old setupINISetting) bool {
+				return old.Section == setting.Section && old.Key == setting.Key
+			})
+			if i < 0 {
+				changes[name] = append(previous, setting)
+			} else {
+				if strings.EqualFold(value, previous[i].Applied) {
+					setting.Original = previous[i].Original
+				}
+				previous[i] = setting
+			}
+		}
+		config = updateSetupINI(config, setting.Section, setting.Key, setting.Applied)
+	}
+	return config
+}
+
+func (changes setupINIChanges) restore(name, config string) string {
+	for _, setting := range changes[name] {
+		if strings.EqualFold(setupINIValue(config, setting.Section, setting.Key), setting.Applied) {
+			config = updateSetupINI(config, setting.Section, setting.Key, setting.Original)
+		}
+	}
+	return config
+}
+
+func readInstalledFiles(active string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(active, installedFilesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return strings.Fields(string(data)), err
 }
 
 type setupReplacement struct {
@@ -278,7 +382,13 @@ func applySetupReplacements(work string, replacements []setupReplacement, keepWo
 	return nil
 }
 
-func configureHD(ctx context.Context, game, cache string, desired setupOptions, emit func(installEvent)) error {
+func configureHD(ctx context.Context, game, cache string, desired setupOptions, emit func(installEvent)) (result error) {
+	applying := false
+	defer func() {
+		if !applying && result != nil && ctx.Err() != nil {
+			result = ctx.Err()
+		}
+	}()
 	if !filepath.IsAbs(game) {
 		return errors.New("The installed game folder must be an absolute path.")
 	}
@@ -333,6 +443,14 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	installedFiles, err := readInstalledFiles(active)
+	if err != nil {
+		return err
+	}
+	iniChanges, err := loadSetupINIChanges(active)
+	if err != nil {
+		return err
+	}
 	worldOptions := map[string]bool{"network": desired.world.network, "terrain": desired.world.terrain,
 		"models": desired.world.models}
 	available := make(map[string]bool)
@@ -348,14 +466,14 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		terrain: desired.world.terrain && !available["terrain"],
 		models:  desired.world.models && !available["models"],
 	}
+	cache, err = resolveSetupPath(cache)
+	if err != nil {
+		return setupInputError{"cache", fmt.Sprintf("Could not open the texture cache: %v", err)}
+	}
+	if insideFolder(game, cache) || insideFolder(cache, game) {
+		return setupInputError{"cache", "Choose a dedicated texture cache outside the game folder."}
+	}
 	if rebuildUI || missing.any() {
-		cache, err = resolveSetupPath(cache)
-		if err != nil {
-			return err
-		}
-		if insideFolder(game, cache) || insideFolder(cache, game) {
-			return setupInputError{"cache", "Choose a dedicated texture cache outside the game folder."}
-		}
 		dependencies := filepath.Join(cache, "SetupDependencies")
 		emit(installEvent{Type: "step", Text: "Checking available disk space"})
 		required := desired
@@ -416,7 +534,8 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 				}
 			case group.directory == inactive:
 				target = newInactive
-			case name == modReceipt || name == installedCacheFile || rememberWorld && name == installedWorldSelectionFile:
+			case name == modReceipt || name == installedCacheFile || name == installedSettingsChangesFile ||
+				rememberWorld && name == installedWorldSelectionFile:
 				continue
 			case isInterfacePackage(name) && (!desired.ui || rebuildUI):
 				continue
@@ -510,35 +629,24 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err := os.WriteFile(filepath.Join(newActive, installedCacheFile), []byte(cache), 0644); err != nil {
 		return err
 	}
-	stats := "off"
-	if desired.drawStats {
-		stats = "on"
-	}
-	for _, file := range []struct {
-		name string
-		edit func(string) string
-	}{
-		{graphicsINI, func(config string) string {
-			config = updateSetupINI(config, "GraphicsOptions", "WindowWidth", strconv.Itoa(desired.width))
-			config = updateSetupINI(config, "GraphicsOptions", "WindowHeight", strconv.Itoa(desired.height))
-			return updateSetupINI(config, "GraphicsOptions", "EnableIntroVideo", strconv.FormatBool(!desired.skipIntro))
-		}},
-		{rendererINI, func(config string) string { return updateSetupINI(config, "SCD3D11", "DrawStats", stats) }},
-	} {
-		target := filepath.Join(plugins, file.name)
+	for _, name := range []string{graphicsINI, rendererINI} {
+		target := filepath.Join(plugins, name)
 		old, err := os.ReadFile(target)
 		if err != nil {
 			return err
 		}
-		updated := file.edit(string(old))
+		updated := iniChanges.edit(name, string(old), desired, false, !slices.Contains(installedFiles, name))
 		if updated == string(old) {
 			continue
 		}
-		staged := filepath.Join(work, file.name)
+		staged := filepath.Join(work, name)
 		if err := os.WriteFile(staged, []byte(updated), 0644); err != nil {
 			return err
 		}
 		replacements = append(replacements, setupReplacement{staged, target})
+	}
+	if err := iniChanges.save(newActive); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -554,6 +662,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		return errors.New("The game executable changed while setup was running. Try again.")
 	}
 	emit(installEvent{Type: "step", Text: "Applying changes to the installed mod"})
+	applying = true
 	return applySetupReplacements(work, replacements, &keepWork)
 }
 
@@ -608,15 +717,38 @@ func removeHD(game string) error {
 	}
 	plugins := filepath.Join(game, "Plugins")
 	active := filepath.Join(plugins, modFolder)
-	files, err := os.ReadFile(filepath.Join(active, installedFilesFile))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	files, err := readInstalledFiles(active)
+	if err != nil {
 		return err
 	}
-	for _, name := range strings.Fields(string(files)) {
+	for _, name := range files {
 		switch name {
 		case rendererDLL, rendererINI, graphicsDLL, graphicsINI:
 			changes = append(changes, setupReplacement{target: filepath.Join(plugins, name)})
 		}
+	}
+	iniChanges, err := loadSetupINIChanges(active)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{graphicsINI, rendererINI} {
+		if len(iniChanges[name]) == 0 || slices.Contains(files, name) {
+			continue
+		}
+		target := filepath.Join(plugins, name)
+		old, err := os.ReadFile(target)
+		if err != nil {
+			return err
+		}
+		updated := iniChanges.restore(name, string(old))
+		if updated == string(old) {
+			continue
+		}
+		staged := filepath.Join(work, name)
+		if err := os.WriteFile(staged, []byte(updated), 0644); err != nil {
+			return err
+		}
+		changes = append(changes, setupReplacement{staged, target})
 	}
 	changes = append(changes, setupReplacement{target: active}, setupReplacement{target: filepath.Join(game, inactiveWorldFolder)})
 	return applySetupReplacements(work, changes, &keepWork)

@@ -310,6 +310,12 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		}
 		return errors.New("Plugins\\SimCity4HD already exists. Move the existing HD package out of Plugins before installing again.")
 	}
+	if _, err := os.Lstat(filepath.Join(game, inactiveWorldFolder)); !errors.Is(err, os.ErrNotExist) {
+		if err != nil {
+			return err
+		}
+		return errors.New("A folder with disabled HD textures already exists. Move it out of the game folder before installing again.")
+	}
 	dependencyDir := filepath.Join(cache, "SetupDependencies")
 	emit(installEvent{Type: "step", Phase: 1, Text: "Checking available disk space"})
 	if err := checkSetupSpace(ctx, game, dependencyDir, cache, options); err != nil {
@@ -327,7 +333,12 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(work)
+	keepWork := false
+	defer func() {
+		if !keepWork {
+			_ = os.RemoveAll(work)
+		}
+	}()
 	ui, world := filepath.Join(work, "UI"), filepath.Join(work, "World")
 	phase := 1
 	deps := setupDependencies{ctx: ctx, dir: dependencyDir, emit: emit}
@@ -392,10 +403,10 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 			return err
 		}
 		progress.report("Applying the mod to the game folder")
-		return publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options)
+		return publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options, &keepWork)
 	}
 	err = run()
-	if err != nil && ctx.Err() != nil {
+	if err != nil && ctx.Err() != nil && !keepWork {
 		if !errors.Is(err, ctx.Err()) {
 			fmt.Fprintf(os.Stderr, "Error while pausing: %v\n", err)
 		}

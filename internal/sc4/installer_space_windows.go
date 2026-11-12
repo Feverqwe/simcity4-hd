@@ -198,18 +198,9 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 			return err
 		}
 	}
-	dependencyBytes := 64 * mib
-	if options.ui || options.world.any() {
-		if !fileExists(filepath.Join(dependencies, modelName)) {
-			dependencyBytes += 512 * mib
-		}
-		if !fileExists(filepath.Join(dependencies, pythonFolder, pythonReadyMarker)) {
-			dependencyBytes += 13 * gib
-		}
-	}
 	return checkVolumeSpace([]spaceRequest{
 		{game, "the HD installation", installBytes},
 		{cache, "the texture cache", cacheBytes},
-		{dependencies, "downloads and upscaling tools", dependencyBytes},
+		{dependencies, "renderer and graphics plugin downloads", 64 * mib},
 	}, lookupSetupVolume)
 }

@@ -33,8 +33,17 @@ func modInstalled(game string) bool {
 	if err != nil {
 		return false
 	}
+	digest, err := hex.DecodeString(string(record))
+	if err != nil || len(digest) != sha256.Size {
+		return false
+	}
 	exe, err := os.ReadFile(filepath.Join(game, "Apps", gameEXE))
-	if err != nil || string(record) != executableHash(exe) {
+	if err != nil {
+		return false
+	}
+	hash := executableHash(exe)
+	// Steam may restore the original executable while leaving setup's files installed.
+	if hash != string(record) && hash != stockEXEHash {
 		return false
 	}
 	for _, name := range []string{rendererDLL, rendererINI, graphicsDLL, graphicsINI} {
@@ -69,42 +78,7 @@ func moveSetupPath(source, target string, replace bool) error {
 	return nil
 }
 
-// Set the resolution in the graphics section without resetting other settings.
-func setGraphicsResolution(config string, width, height int) string {
-	lines := strings.Split(config, "\n")
-	var result strings.Builder
-	found, inGraphics := false, false
-	writeMode := func() {
-		fmt.Fprintf(&result, "WindowMode=FullScreen\r\nWindowWidth=%d\r\nWindowHeight=%d\r\n", width, height)
-	}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inGraphics = strings.EqualFold(trimmed, "[GraphicsOptions]")
-			if inGraphics {
-				found = true
-				result.WriteString(line + "\n")
-				writeMode()
-				continue
-			}
-		}
-		if inGraphics {
-			key, _, _ := strings.Cut(trimmed, "=")
-			switch strings.ToLower(strings.TrimSpace(key)) {
-			case "windowmode", "windowwidth", "windowheight":
-				continue
-			}
-		}
-		result.WriteString(line + "\n")
-	}
-	if !found {
-		result.WriteString("[GraphicsOptions]\r\n")
-		writeMode()
-	}
-	return result.String()
-}
-
-func publishMod(ctx context.Context, game, work, stage, patched string, stock []byte, renderer []string, graphics string, options setupOptions) (result error) {
+func publishMod(ctx context.Context, game, work, stage, patched string, stock []byte, renderer []string, graphics string, options setupOptions, keepWork *bool) (result error) {
 	apps, plugins := filepath.Join(game, "Apps"), filepath.Join(game, "Plugins")
 	exe := filepath.Join(apps, gameEXE)
 	hash := stockEXEHash
@@ -119,51 +93,33 @@ func publishMod(ctx context.Context, game, work, stage, patched string, stock []
 		return err
 	}
 
-	rendererConfig, err := os.ReadFile(renderer[1])
-	if err != nil {
-		return err
+	iniChanges := make(setupINIChanges)
+	type iniReplacement struct {
+		setupReplacement
+		backup   string
+		original []byte
 	}
-	if options.drawStats {
-		rendererConfig = bytes.Replace(rendererConfig, []byte("DrawStats=off"), []byte("DrawStats=on"), 1)
-	}
-	rendererSettings := filepath.Join(work, rendererINI)
-	if err := os.WriteFile(rendererSettings, rendererConfig, 0644); err != nil {
-		return err
-	}
-	graphicsSettings := filepath.Join(work, graphicsINI)
-	config := fmt.Sprintf("[GraphicsOptions]\r\nDriver=DirectX\r\nColorDepth=32\r\nEnableIntroVideo=%t\r\n", !options.skipIntro)
-	graphicsTarget := filepath.Join(plugins, graphicsINI)
-	var oldGraphics []byte
-	if info, err := os.Lstat(graphicsTarget); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s is not a regular file", graphicsTarget)
+	var editedSettings []iniReplacement
+	var files []setupReplacement
+	var installedFiles []string
+	for _, name := range []string{rendererDLL, rendererINI, graphicsDLL, graphicsINI} {
+		target := filepath.Join(plugins, name)
+		info, err := os.Lstat(target)
+		exists := err == nil
+		if exists && !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", target)
 		}
-		oldGraphics, err = os.ReadFile(graphicsTarget)
-		if err != nil {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		config = string(oldGraphics)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	config = setGraphicsResolution(config, options.width, options.height)
-	if err := os.WriteFile(graphicsSettings, []byte(config), 0644); err != nil {
-		return err
-	}
-
-	var files []string
-	var installedFiles []string
-	for _, source := range []string{renderer[0], rendererSettings, graphics, graphicsSettings} {
-		name := filepath.Base(source)
-		target := filepath.Join(plugins, name)
-		if info, err := os.Lstat(target); err == nil {
-			if name == graphicsINI && oldGraphics == nil {
-				return errors.New("The graphics settings appeared during installation. Try again.")
+		local := filepath.Join(work, name)
+		switch name {
+		case rendererDLL, graphicsDLL:
+			source := graphics
+			if name == rendererDLL {
+				source = renderer[0]
 			}
-			if !info.Mode().IsRegular() {
-				return fmt.Errorf("%s is not a regular file", target)
-			}
-			if strings.EqualFold(filepath.Ext(name), ".dll") {
+			if exists {
 				actual, err := os.ReadFile(target)
 				if err != nil {
 					return err
@@ -175,20 +131,44 @@ func publishMod(ctx context.Context, game, work, stage, patched string, stock []
 				if !bytes.Equal(actual, expected) {
 					return fmt.Errorf("A different %s is already installed. Move it out of Plugins before continuing.", name)
 				}
+				continue
 			}
-			continue
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+			if err := copyRegular(source, local); err != nil {
+				return err
+			}
+		case rendererINI, graphicsINI:
+			var original []byte
+			if exists || name == rendererINI {
+				source := target
+				if !exists {
+					source = renderer[1]
+				}
+				original, err = os.ReadFile(source)
+				if err != nil {
+					return err
+				}
+			}
+			config := iniChanges.edit(name, string(original), options, true, exists)
+			if exists && config == string(original) {
+				continue
+			}
+			if err := os.WriteFile(local, []byte(config), 0644); err != nil {
+				return err
+			}
+			if exists {
+				backup := filepath.Join(work, "previous-"+name)
+				if err := os.WriteFile(backup, original, 0644); err != nil {
+					return err
+				}
+				editedSettings = append(editedSettings, iniReplacement{setupReplacement{local, target}, backup, original})
+				continue
+			}
 		}
-		if name == graphicsINI && oldGraphics != nil {
-			return errors.New("The graphics settings disappeared during installation. Try again.")
-		}
-		local := filepath.Join(work, "stage-"+name)
-		if err := copyRegular(source, local); err != nil {
-			return err
-		}
-		files = append(files, local)
+		files = append(files, setupReplacement{local, target})
 		installedFiles = append(installedFiles, name)
+	}
+	if err := iniChanges.save(stage); err != nil {
+		return err
 	}
 	if err := os.WriteFile(filepath.Join(stage, installedFilesFile), []byte(strings.Join(installedFiles, "\n")), 0644); err != nil {
 		return err
@@ -240,36 +220,34 @@ func publishMod(ctx context.Context, game, work, stage, patched string, stock []
 			return fmt.Errorf("The existing executable backup %s does not match the original game.", backup)
 		}
 	}
-	for _, source := range files {
-		target := filepath.Join(plugins, strings.TrimPrefix(filepath.Base(source), "stage-"))
-		if err := moveSetupPath(source, target, false); err != nil {
+	for _, file := range files {
+		if err := moveSetupPath(file.staged, file.target, false); err != nil {
 			return err
 		}
-		published = append(published, target)
+		published = append(published, file.target)
 	}
 	destination := filepath.Join(plugins, modFolder)
 	if err := moveSetupPath(stage, destination, false); err != nil {
 		return err
 	}
 	published = append(published, destination)
-	if oldGraphics != nil {
-		current, err := os.ReadFile(graphicsTarget)
+	for _, change := range editedSettings {
+		current, err := os.ReadFile(change.target)
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(current, oldGraphics) {
-			return errors.New("The graphics settings changed during installation. Try again.")
+		if !bytes.Equal(current, change.original) {
+			return fmt.Errorf("%s changed during installation. Try again.", change.target)
 		}
-		backup := filepath.Join(work, "previous-"+graphicsINI)
-		if err := os.WriteFile(backup, oldGraphics, 0644); err != nil {
-			return err
-		}
-		if err := moveSetupPath(graphicsSettings, graphicsTarget, true); err != nil {
+		if err := moveSetupPath(change.staged, change.target, true); err != nil {
 			return err
 		}
 		defer func() {
 			if result != nil {
-				result = errors.Join(result, moveSetupPath(backup, graphicsTarget, true))
+				if err := moveSetupPath(change.backup, change.target, true); err != nil {
+					*keepWork = true
+					result = errors.Join(result, fmt.Errorf("restore %s from %s: %w", change.target, change.backup, err))
+				}
 			}
 		}()
 	}

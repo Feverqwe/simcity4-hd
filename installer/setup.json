@@ -72,7 +72,7 @@
     },
     {
       "id": "draw-stats",
-      "label": "Show renderer statistics",
+      "label": "Log renderer statistics",
       "default": false,
       "group": "Game launch"
     },

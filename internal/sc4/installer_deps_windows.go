@@ -46,6 +46,23 @@ func (d *setupDependencies) inference(phase int) (string, string, error) {
 	if d.python != "" {
 		return d.python, d.weights, nil
 	}
+	weights := filepath.Join(d.dir, modelName)
+	weightsReady := checkSHA(d.ctx, weights, hatCheckpointSHA) == nil
+	var required uint64
+	if !weightsReady {
+		required += 512 * mib
+	}
+	pythonDir := filepath.Join(d.dir, pythonFolder)
+	if !fileExists(filepath.Join(pythonDir, "python.exe")) ||
+		!fileExists(filepath.Join(pythonDir, pythonReadyMarker)) {
+		required += 13 * gib
+	}
+	if err := d.ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if err := checkVolumeSpace([]spaceRequest{{d.dir, "downloads and upscaling tools", required}}, lookupSetupVolume); err != nil {
+		return "", "", err
+	}
 	python, err := d.preparePython(phase)
 	if err != nil {
 		return "", "", err
@@ -58,8 +75,7 @@ func (d *setupDependencies) inference(phase int) (string, string, error) {
 		}
 		return "", "", fmt.Errorf("Could not start the CUDA upscale tools. See the installation log for details. (%w)", err)
 	}
-	weights := filepath.Join(d.dir, modelName)
-	if err := checkSHA(d.ctx, weights, hatCheckpointSHA); err != nil {
+	if !weightsReady {
 		if err := removeIfPresent(weights); err != nil {
 			return "", "", err
 		}
