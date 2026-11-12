@@ -2,9 +2,21 @@
 .intel_syntax noprefix
 .text
 .global parser, direct, sliced, port, stretch, clipped
+.ifndef screen_density
+.set screen_density, 0
+.endif
+
+.macro double_source reg
+    .if screen_density
+    nop
+    nop
+    .else
+    add \reg, \reg
+    .endif
+.endm
 
 # The parser dispatch passes a writable copy of the complete atlas rectangle.
-# Only replacement groups emitted for ×4 UI layouts use logical button geometry.
+# Replacement groups mark artwork that uses the density-aware paint path.
 parser:
     mov ecx, [ebp+0x68]
     push dword ptr [ebp+0x64]
@@ -17,10 +29,14 @@ parser:
     test edx, edx
     je parser_stock
     or byte ptr [ecx+0xdf], 0x80
+    .if screen_density
+    .fill 11, 1, 0x90
+    .else
     sar dword ptr [edx], 1
     sar dword ptr [edx+4], 1
     sar dword ptr [edx+8], 1
     sar dword ptr [edx+12], 1
+    .endif
 parser_stock:
     call dword ptr [eax+0x30]
     .byte 0xe9
@@ -63,16 +79,16 @@ stretch_hd:
     mov edx, [esp+8]
     sub esp, 16
     mov eax, [edx]
-    add eax, eax
+    double_source eax
     mov [esp], eax
     mov eax, [edx+4]
-    add eax, eax
+    double_source eax
     mov [esp+4], eax
     mov eax, [edx+8]
-    add eax, eax
+    double_source eax
     mov [esp+8], eax
     mov eax, [edx+12]
-    add eax, eax
+    double_source eax
     mov [esp+12], eax
     mov edx, esp
     push dword ptr [esp+28]
@@ -110,10 +126,14 @@ bitmap_parser_stock:
 bitmap_source:
     test byte ptr [ebx+0xfb], 0x80
     jz bitmap_source_stock
+    .if screen_density
+    .fill 12, 1, 0x90
+    .else
     sar dword ptr [ebp-16], 1
     sar dword ptr [ebp-12], 1
     sar dword ptr [ebp-8], 1
     sar dword ptr [ebp-4], 1
+    .endif
 bitmap_source_stock:
     lea esi, [ebx+0xd8]
     .byte 0xe9

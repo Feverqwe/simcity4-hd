@@ -392,9 +392,7 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	for _, site := range []int{0x4fa849, 0x4fa857, 0x4fa872} {
 		patches = append(patches, instruction(site, "8b8ea4010000", "8b8ea8010000"))
 	}
-	if textureScale == 4 {
-		stub, patches = appendDensityUIPatches(stub, patches, stubRVA)
-	}
+	stub, patches = appendDensityUIPatches(stub, patches, stubRVA, textureScale)
 	if options.hdCursors {
 		// The hardware path calls LoadCursorFromFileA, which requests the
 		// system cursor size. LoadImageA with only LR_LOADFROMFILE instead

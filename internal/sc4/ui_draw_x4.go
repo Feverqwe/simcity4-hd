@@ -8,16 +8,23 @@ import (
 // Build the embedded stubs with Clang and llvm-objcopy from this directory:
 //
 //	clang -target i386-linux-gnu -x assembler -c ui_draw_x4.asm -o /tmp/sc4-draw.o
+//	clang -target i386-linux-gnu -x assembler -Wa,-defsym,screen_density=1 -c ui_draw_x4.asm -o /tmp/sc4-draw2.o
 //	clang -target i386-linux-gnu -x assembler -c patchsrc/ui_source_origin.asm -o /tmp/sc4-origin.o
 //	clang -target i386-linux-gnu -march=i386 -Os -mno-sse -mno-sse2 -ffreestanding -fno-pic -fno-stack-protector -c patchsrc/ui_frame_tile.c -o /tmp/sc4-tile.o
+//	clang -target i386-linux-gnu -march=i386 -Os -mno-sse -mno-sse2 -ffreestanding -fno-pic -fno-stack-protector -DFRAME_SOURCE_SCALE=1 -c patchsrc/ui_frame_tile.c -o /tmp/sc4-tile2.o
 //	llvm-objcopy -O binary -j .text /tmp/sc4-draw.o ui_draw_x4.i386
+//	llvm-objcopy -O binary -j .text /tmp/sc4-draw2.o ui_draw_x2.i386
 //	llvm-objcopy -O binary -j .text /tmp/sc4-origin.o ui_source_origin.i386
 //	llvm-objcopy -O binary -j .text /tmp/sc4-tile.o ui_frame_tile.i386
+//	llvm-objcopy -O binary -j .text /tmp/sc4-tile2.o ui_frame_tile_x2.i386
 //
 // Keep the stubs self-contained and verify that .text has no relocations.
 //
 //go:embed ui_draw_x4.i386
 var densityDraw []byte
+
+//go:embed ui_draw_x2.i386
+var screenDensityDraw []byte
 
 //go:embed ui_source_origin.i386
 var densitySourceOrigin []byte
@@ -25,9 +32,12 @@ var densitySourceOrigin []byte
 //go:embed ui_frame_tile.i386
 var densityTile []byte
 
+//go:embed ui_frame_tile_x2.i386
+var screenDensityTile []byte
+
 // appendDensityUIPatches keeps the control layout and click bounds in
 // logical pixels. The adapters translate the source rectangle at draw time.
-func appendDensityUIPatches(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
+func appendDensityUIPatches(stub []byte, patches []instructionPatch, base, textureScale int) ([]byte, []instructionPatch) {
 	const (
 		directEntry       = 0x38
 		slicedEntry       = 0x4b
@@ -41,7 +51,11 @@ func appendDensityUIPatches(stub []byte, patches []instructionPatch, base int) (
 	)
 	stub = append(stub, make([]byte, (-(base+len(stub)))&15)...)
 	start := base + len(stub)
-	code := bytes.Clone(densityDraw)
+	draw, tile := densityDraw, densityTile
+	if textureScale == 2 {
+		draw, tile = screenDensityDraw, screenDensityTile
+	}
+	code := bytes.Clone(draw)
 	for _, jump := range []struct{ end, target int }{
 		{directEntry, 0x54fcd2},
 		{destinationEntry, 0x4d8800},
@@ -82,7 +96,7 @@ func appendDensityUIPatches(stub []byte, patches []instructionPatch, base int) (
 		patches = append(patches, instructionPatch{hook.site, original, patch})
 	}
 	stub = append(stub, code...)
-	stub = append(stub, densityTile...)
+	stub = append(stub, tile...)
 	// The port maps a source coordinate to source*scale+translation.
 	// Keep the source origin anchored when scaling a subrectangle.
 	stub, origin := appendStub(stub, base, 0x42c5c9,
