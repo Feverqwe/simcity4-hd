@@ -37,6 +37,7 @@ venv/
 *.pdb
 *.bundle
 *.jpg
+!/assets/screenshot.jpg
 *.jpeg
 *.webp
 *.sfc

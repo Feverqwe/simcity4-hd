@@ -1,17 +1,30 @@
 # SimCity 4 HD
 
-A build-from-source HD mod preview for **SimCity 4 Deluxe on Windows**. It builds UI and world texture packs at ×4 from stock game resources and targets a native 4K profile.
+An HD mod preview for **SimCity 4 Deluxe on Windows**, with a larger interface and ×4 upscaled UI and world textures for native 4K.
+
+![SimCity 4 HD gameplay at 3840 × 2160](assets/screenshot.jpg)
+
+## Download Ready-to-Copy for Windows
+
+Download the prebuilt `.7z` archive from either mirror. It includes the HD texture packs, a patched game executable, the SCD3D11 renderer, and a 4K launcher.
+
+- [OneDrive](https://1drv.ms/f/c/93e54109264f3ede/IgCk1v2pSLulRb8F38sXonzfATgkeaHfZUgB9Yx_hOz1G_E)
+- [Yandex Disk](https://disk.yandex.ru/d/ybsDYO0X-H8K8w)
+
+The package requires the Steam version of SimCity 4 Deluxe (build 4644414). Open `README-HD.txt` in the archive for instructions on backing up the original executable, extracting the files into your game folder, and launching at 3840 × 2160.
+
+## Build from source
 
 The Windows builder creates the mod from your local game installation. You supply the game, renderer, and HAT checkpoint.
 
-## Requirements
+### Requirements
 
 - **SimCity 4 Deluxe on Steam**, build 4644414, with the original Windows executable version 1.1.641.0. The builder checks the executable fingerprint. The reference installation used the English locale.
 - **WSL 2** with Python 3.12 and a CUDA-capable NVIDIA setup. The reference build used an RTX 5070 Ti and PyTorch 2.11 with CUDA 12.8.
 - Free disk space for the WSL environment, inference cache and test profile. Allow disk space for the ×4 texture cache, the built packages, and a separate test profile.
 - A renderer capable of native 3840 × 2160. For SCD3D11, download [v0.5.0](https://github.com/caspervg/scd3d11/releases/tag/v0.5.0).
 
-## Set up inference in WSL
+### Set up inference in WSL
 
 Install the Python dependencies in WSL. The Windows builder invokes this interpreter for HAT inference.
 
@@ -25,7 +38,7 @@ python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_
 
 Download `IllustrationJaNai_V3detail.zip` and extract `4x_IllustrationJaNai_V3detail_HAT_L_28k_bf16.safetensors`. [IllustrationJaNai V3 release](https://github.com/the-database/MangaJaNai/releases/tag/3.0.0)
 
-## Build UI and World on Windows
+### Build UI and World on Windows
 
 Download the Windows executable from GitHub Releases, or run `go build -o simcity4-hd-windows-amd64.exe .` from a source checkout. Open PowerShell in the directory containing the builder. Use Windows paths for the game, cache, and output. The Python interpreter and weights use WSL paths.
 
@@ -47,7 +60,7 @@ $inference = @(
 
 Run either command on its own or build both. Each build needs a new output directory. The first build can take several hours. Keep the cache to reuse completed textures. Each output contains `Plugins`. The UI output also includes a patched `SimCity4-hd.exe`. Use `ui -texture-scale 2` for the ×2 UI texture variant. Both variants use the same HUD size on screen. Keep each variant in a separate output directory and install its matching executable and Plugins together. Rebuild UI after changing the game's language so tutorial text comes from the correct archive.
 
-## Install in an isolated profile
+### Install in an isolated profile
 
 Copy the game into a separate test directory and put the patched UI executable in that copy. Use a fresh profile path without spaces. The example stages both builds and copies the stock regions. You can pass one build's `Plugins` directory to stage just that build. For World on its own, keep the game executable from the copied installation.
 
