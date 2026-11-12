@@ -1,0 +1,92 @@
+{
+  "product": "SimCity 4 UHD",
+  "reconfigure": true,
+  "artwork": "screenshot.jpg",
+  "readyText": "SimCity 4 Deluxe found. Close the game before installing the HD mod.",
+  "progressText": "Images processed: %L1",
+  "paths": [
+    {
+      "id": "game",
+      "label": "Game folder",
+      "browse": "Select SimCity 4 Deluxe",
+      "inspectOnChange": true,
+      "prompt": "Choose the Steam folder containing SimCity 4 Deluxe.",
+      "required": true
+    },
+    {
+      "id": "cache",
+      "label": "Texture cache",
+      "browse": "Select a texture cache folder",
+      "default": "${SETUP_EXE_DIR}/SimCity4UHDCache"
+    }
+  ],
+  "displayResolution": { "id": "resolution", "fallback": "3840x2160" },
+  "options": [
+    {
+      "id": "ui",
+      "label": "Upscale interface textures and apply UI fixes",
+      "default": true,
+      "group": "Interface"
+    },
+    {
+      "id": "hd-cursors",
+      "label": "Larger game cursors",
+      "default": true,
+      "requires": "ui"
+    },
+    {
+      "id": "region-map",
+      "label": "Larger region map",
+      "default": true,
+      "requires": "ui"
+    },
+    {
+      "id": "loading-preview",
+      "label": "Larger city loading preview",
+      "default": true,
+      "requires": "ui"
+    },
+    {
+      "id": "world",
+      "label": "Upscale world textures",
+      "default": true,
+      "group": "World"
+    },
+    {
+      "id": "network",
+      "label": "Roads and rail",
+      "default": true,
+      "requires": "world"
+    },
+    {
+      "id": "terrain",
+      "label": "Terrain",
+      "default": true,
+      "requires": "world"
+    },
+    {
+      "id": "models",
+      "label": "Buildings, props and effects",
+      "default": true,
+      "requires": "world"
+    },
+    {
+      "id": "draw-stats",
+      "label": "Show renderer statistics",
+      "default": false,
+      "group": "Game launch"
+    },
+    {
+      "id": "skip-intro",
+      "label": "Skip the game intro",
+      "default": true
+    }
+  ],
+  "pausingText": "Pausing… Completed textures will be kept.",
+  "pausedText": "Resume whenever you’re ready. Setup will reuse the textures already saved.",
+  "installedText": "SimCity 4 UHD is installed. Close the game before changing its settings. To play, open SimCity 4 Deluxe in Steam.",
+  "backendArgs": [
+    "setup"
+  ],
+  "icon": "setup.ico"
+}

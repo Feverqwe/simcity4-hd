@@ -16,10 +16,14 @@ const hatCheckpointSHA = "38c00c9ff871ae292617ae1127edc150f81c4e0f8f98685e48ff9c
 
 type worldArtwork struct {
 	cache string
+	ctx   context.Context
 	infer func([]byte) ([]byte, error)
 }
 
 func (a worldArtwork) texture(cache string, original []byte, scale int, placement bool) ([]byte, error) {
+	if err := a.ctx.Err(); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(cache, fmt.Sprintf("%x.fsh", sha256.Sum256(original)))
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -118,9 +122,9 @@ func verifyWorldTextureTail(stock, hd []byte, e, r fshElement, scale int) error 
 }
 
 func worldInference(ctx context.Context, cache string, config inferenceConfig) (worldArtwork, func() error) {
-	art := worldArtwork{cache: cache}
+	art := worldArtwork{cache: cache, ctx: ctx}
 	var worker *inferenceWorker
-	if config.weights != "" {
+	if config.enabled() {
 		art.infer = func(data []byte) ([]byte, error) {
 			if worker == nil {
 				var err error

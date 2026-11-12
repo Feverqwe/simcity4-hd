@@ -55,10 +55,12 @@ func cachedUIAtlas(cache string, id resourceID, stock []byte, widths []int, scal
 	return art, atlas, nil
 }
 
-func catalogChromeEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error)) ([]resource, error) {
+func catalogChromeEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error), progress buildProgress) ([]resource, error) {
 	widths := []int{80, 53, 53, 53, 53}
 	entries := make([]resource, 0, len(chromeInstances))
-	for _, instance := range chromeInstances {
+	report := progress.track(len(chromeInstances))
+	for i, instance := range chromeInstances {
+		report(i)
 		id := resourceID{uiImage, catalogFrameGroup, instance}
 		index := slices.IndexFunc(stock.records, func(r record) bool { return r.id == id })
 		if index < 0 {
@@ -84,10 +86,11 @@ func catalogChromeEntries(stock *archive, cache string, scale int, infer func([]
 		}
 		entries = append(entries, resource{id, art})
 	}
+	report(len(chromeInstances))
 	return entries, nil
 }
 
-func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error)) ([]resource, error) {
+func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]byte) ([]byte, error), progress buildProgress) ([]resource, error) {
 	pairs := make(map[uint32]map[uint32][]byte)
 	for _, r := range stock.records {
 		id := r.id
@@ -116,7 +119,9 @@ func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]
 	}
 	slices.Sort(instances)
 	entries := make([]resource, 0, 2*len(instances))
-	for _, instance := range instances {
+	report := progress.track(len(instances))
+	for i, instance := range instances {
+		report(i)
 		pair := pairs[instance]
 		data := pair[catalogFrameGroup]
 		if data == nil || !bytes.Equal(data, pair[mySimPortraitGroup]) {
@@ -149,6 +154,7 @@ func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]
 		}
 		entries = append(entries, resource{resourceID{uiImage, mySimPortraitGroup, instance}, art}, resource{id, art})
 	}
+	report(len(instances))
 	return entries, nil
 }
 
@@ -163,7 +169,7 @@ func runUIAssets(name string, args []string) (result error) {
 		return err
 	}
 	if flags.NArg() != 3 {
-		return fmt.Errorf("usage: simcity4-hd %s [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DAT", name)
+		return fmt.Errorf("usage: simcity4-uhd %s [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DAT", name)
 	}
 	build := catalogChromeEntries
 	if name == "mysim-portraits" {
@@ -199,7 +205,7 @@ func runUIAssets(name string, args []string) (result error) {
 			return worker.upscalePNG(png)
 		}
 	}
-	entries, err := build(stock, flags.Arg(1), 4, infer)
+	entries, err := build(stock, flags.Arg(1), 4, infer, buildProgress{})
 	if err != nil {
 		return err
 	}

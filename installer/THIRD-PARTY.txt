@@ -1,0 +1,22 @@
+SimCity 4 UHD Setup uses Qt 6 Widgets, dynamically linked, under LGPL v3.
+To use compatible replacement libraries, run the setup executable with
+`--extract-to DIRECTORY` (a new folder), replace the Qt files there, and run
+setup with `--runtime DIRECTORY`. Qt 6.8.3 source,
+including license notices, is available at:
+https://download.qt.io/archive/qt/6.8/6.8.3/submodules/
+https://www.gnu.org/licenses/lgpl-3.0.html
+https://www.gnu.org/licenses/gpl-3.0.html
+
+The installed mod uses SCD3D11 (LGPL v2.1 or later). Its release, source,
+license, and third-party notices are available at:
+https://github.com/caspervg/scd3d11/releases/tag/v0.5.0
+
+The mod uses SC4GraphicsOptions (LGPL v2.1) for resolution and graphics
+settings. Its release and source are available at:
+https://github.com/0xC0000054/sc4-graphics-options/releases/tag/v1.4.1
+
+Setup downloads Python, PyTorch, and the IllustrationJaNai checkpoint on
+demand. These downloads come from the respective projects:
+https://www.nuget.org/packages/python/3.12.10
+https://pytorch.org/
+https://github.com/the-database/MangaJaNai/releases/tag/3.0.0

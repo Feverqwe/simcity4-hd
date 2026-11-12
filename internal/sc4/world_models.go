@@ -142,15 +142,28 @@ func modelTextureSupported(data []byte, pass modelPass) (bool, error) {
 	return pass.selection != railMaterials || railPlacement, nil
 }
 
-func buildModelBatches(stock *gameCatalog, report *materialReport, art worldArtwork, output string) (map[resourceID]bool, error) {
+func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldArtwork, output string, progress buildProgress) (map[resourceID]bool, error) {
 	const batchSize = 128
 	seen := make(map[resourceID]bool)
 	cache := filepath.Join(art.cache, "models", hatCheckpointSHA, "fsh-x4-v1")
+	sources := make(map[modelSelection][]resourceID)
+	total := 0
 	for _, pass := range modelPasses {
-		ids, err := modelMaterialSources(stock, report, pass.selection)
-		if err != nil {
-			return nil, err
+		ids, known := sources[pass.selection]
+		if !known {
+			var err error
+			ids, err = modelMaterialSources(stock, materials, pass.selection)
+			if err != nil {
+				return nil, err
+			}
+			sources[pass.selection] = ids
 		}
+		total += len(ids)
+	}
+	report := progress.track(total)
+	processed := 0
+	for _, pass := range modelPasses {
+		ids := sources[pass.selection]
 		var entries []resource
 		batch, count := 0, 0
 		write := func() error {
@@ -165,6 +178,8 @@ func buildModelBatches(stock *gameCatalog, report *materialReport, art worldArtw
 			return nil
 		}
 		for _, id := range ids {
+			report(processed)
+			processed++
 			if id.instance&0xfffff000 == 0x03100000 {
 				continue
 			}
@@ -210,6 +225,7 @@ func buildModelBatches(stock *gameCatalog, report *materialReport, art worldArtw
 		}
 		fmt.Printf("%s: %d textures in %d packages\n", pass.prefix(), count, batch)
 	}
+	report(total)
 	return seen, nil
 }
 
@@ -224,7 +240,7 @@ func runModelTextures(args []string) (result error) {
 		return err
 	}
 	if flags.NArg() != 3 {
-		return errors.New("usage: simcity4-hd model-textures [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
+		return errors.New("usage: simcity4-uhd model-textures [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
@@ -261,7 +277,7 @@ func runModelTextures(args []string) (result error) {
 		}
 		result = errors.Join(result, closeWorker())
 	}()
-	if _, err := buildModelBatches(stock, report, art, stage); err != nil {
+	if _, err := buildModelBatches(stock, report, art, stage, buildProgress{}); err != nil {
 		return err
 	}
 	if err := closeWorker(); err != nil {

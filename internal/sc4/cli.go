@@ -5,10 +5,13 @@ import (
 	"os"
 )
 
-const usage = "Usage: simcity4-hd <ui|world|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|stage-profile|launch> ..."
+const usage = "Usage: simcity4-uhd <ui|world|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|stage-profile|launch> ..."
 
 // Run dispatches the command line and returns the process exit code.
 func Run(args []string, version string) int {
+	if len(args) > 0 && args[0] == "setup" {
+		return runInstaller(args[1:])
+	}
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Println(version)
 		return 0

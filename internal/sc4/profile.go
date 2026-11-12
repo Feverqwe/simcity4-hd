@@ -205,7 +205,7 @@ func runStageProfile(args []string, output io.Writer) error {
 		return err
 	}
 	if flags.NArg() < 3 {
-		return errors.New("usage: simcity4-hd stage-profile [-renderer FILE] TEMPLATE OUTPUT PACKAGE_OR_DIRECTORY ...")
+		return errors.New("usage: simcity4-uhd stage-profile [-renderer FILE] TEMPLATE OUTPUT PACKAGE_OR_DIRECTORY ...")
 	}
 	packages, err := packagePaths(flags.Args()[2:])
 	if err != nil {

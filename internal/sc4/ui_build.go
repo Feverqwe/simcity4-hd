@@ -40,9 +40,18 @@ const (
 )
 
 type uiArtwork struct {
-	cache string
-	scale int
-	infer func([]byte) ([]byte, error)
+	cache     string
+	scale     int
+	infer     func([]byte) ([]byte, error)
+	processed func()
+}
+
+func (a uiArtwork) atlas(folder string, id resourceID, original []byte, widths []int) ([]byte, *image.NRGBA, error) {
+	data, atlas, err := cachedUIAtlas(filepath.Join(a.cache, folder), id, original, widths, 4, a.infer)
+	if err == nil && a.processed != nil {
+		a.processed()
+	}
+	return data, atlas, err
 }
 
 func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
@@ -54,7 +63,7 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid UI atlas frame geometry")
 	}
 	widths := slices.Repeat([]int{config.Width / spec.frames}, spec.frames)
-	data, _, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), spec.source, original, widths, 4, a.infer)
+	data, _, err := a.atlas("ui-atlases-x4", spec.source, original, widths)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +342,7 @@ func (a uiArtwork) upscaleScoreRows(id resourceID, original []byte) ([]byte, err
 		return nil, err
 	}
 	width, height := source.Rect.Dx(), source.Rect.Dy()
-	_, atlas, err := cachedUIAtlas(filepath.Join(a.cache, "ui-atlases-x4"), id, original, []int{width}, 4, a.infer)
+	_, atlas, err := a.atlas("ui-atlases-x4", id, original, []int{width})
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +391,7 @@ func buildNewsMarkers(stock uiStock, art uiArtwork) ([]resource, error) {
 				}
 			}
 		}
-		_, atlas, err := cachedUIAtlas(filepath.Join(art.cache, "ui-atlases-x4"), id, data, []int{18}, 4, art.infer)
+		_, atlas, err := art.atlas("ui-atlases-x4", id, data, []int{18})
 		if err != nil {
 			return nil, fmt.Errorf("News marker %s: %w", id, err)
 		}
@@ -452,7 +461,15 @@ type uiPackage struct {
 	entries []resource
 }
 
-func runBuildUI(args []string) (result error) {
+func runBuildUI(args []string) error {
+	return buildUIWithProgress(context.Background(), args, buildProgress{})
+}
+
+func buildUIWithProgress(ctx context.Context, args []string, progress buildProgress) (result error) {
+	return buildUIFromExecutable(ctx, args, progress, nil)
+}
+
+func buildUIFromExecutable(ctx context.Context, args []string, progress buildProgress, executable []byte) (result error) {
 	flags := flag.NewFlagSet("ui", flag.ContinueOnError)
 	textureScale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
 	hdCursors := flags.Bool("hd-cursors", false, "build experimental HD game cursors")
@@ -467,16 +484,18 @@ func runBuildUI(args []string) (result error) {
 		return err
 	}
 	if flags.NArg() != 3 {
-		return errors.New("usage: simcity4-hd ui [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
+		return errors.New("usage: simcity4-uhd ui [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
 	}
 	if *textureScale != 2 && *textureScale != 4 {
 		return errors.New("texture scale must be 2 or 4")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	// Validate the executable fingerprint before doing potentially lengthy inference.
-	executable, err := os.ReadFile(filepath.Join(game, "Apps", "SimCity 4.exe"))
-	if err != nil {
-		return err
+	if executable == nil {
+		executable, err = os.ReadFile(filepath.Join(game, "Apps", "SimCity 4.exe"))
+		if err != nil {
+			return err
+		}
 	}
 	executable, err = patchUIExecutable(executable, *textureScale, uiExecutableOptions{
 		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap,
@@ -491,7 +510,8 @@ func runBuildUI(args []string) (result error) {
 		return fmt.Errorf("%s already exists", output)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	config.prepare = progress.prepare
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var worker *inferenceWorker
 	closeWorker := func() error {
@@ -509,7 +529,7 @@ func runBuildUI(args []string) (result error) {
 		result = errors.Join(result, closeWorker())
 	}()
 	var infer func([]byte) ([]byte, error)
-	if config.weights != "" {
+	if config.enabled() {
 		infer = func(data []byte) ([]byte, error) {
 			if worker == nil {
 				var err error
@@ -527,21 +547,26 @@ func runBuildUI(args []string) (result error) {
 	}
 	defer stock.file.Close()
 	stockUI := indexUIStock(stock)
-	art := uiArtwork{cache, *textureScale, infer}
+	progress.report("City interface")
+	art := uiArtwork{cache: cache, scale: *textureScale, infer: infer, processed: progress.count()}
 	hud, err := buildHUD(game, stockUI, art)
 	if err != nil {
 		return fmt.Errorf("build HUD: %w", err)
 	}
 	// The runtime catalog shares native copy routines with other windows.
 	// Project its x4 art to the doubled frame geometry those routines expect.
-	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, "ui-atlases-x4"), 2, infer)
+	progress.report("Building catalog")
+	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, "ui-atlases-x4"), 2, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build catalog sheets: %w", err)
 	}
-	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, "ui-catalog-chrome"), 2, infer)
+	progress.report("Catalog frames")
+	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, "ui-catalog-chrome"), 2, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build catalog frames: %w", err)
 	}
+	progress.report("Disasters background and cursors")
+	art.processed = progress.count()
 	disasters, err := disasterEntries(stockUI, art)
 	if err != nil {
 		return fmt.Errorf("build Disasters background: %w", err)
@@ -560,7 +585,8 @@ func runBuildUI(args []string) (result error) {
 		config.scale = 2
 	}
 	suffix := fmt.Sprintf("x%d", *textureScale)
-	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-"+suffix), *textureScale, infer)
+	progress.report("Portraits")
+	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-"+suffix), *textureScale, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build My Sims portraits: %w", err)
 	}
@@ -591,6 +617,10 @@ func runBuildUI(args []string) (result error) {
 	if len(cursors) != 0 {
 		packages = append(packages, uiPackage{"cursors-hd.dat", cursors})
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	progress.report("Packing interface files")
 	return publishUI(output, executable, packages)
 }
 

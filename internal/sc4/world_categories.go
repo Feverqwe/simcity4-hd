@@ -50,19 +50,27 @@ func categoryTextureSupported(category worldCategory, data []byte) bool {
 	return !category.placement || placed
 }
 
-func buildCategoryBatches(stock *gameCatalog, art worldArtwork, output string, supplied map[resourceID]bool) error {
+func buildCategoryBatches(stock *gameCatalog, art worldArtwork, output string, supplied map[resourceID]bool, selection worldSelection, progress buildProgress) error {
 	for _, category := range worldCategories {
-		if err := buildWorldCategory(stock, art, output, category, supplied); err != nil {
+		if category.name == "terrain" && !selection.terrain || category.name != "terrain" && !selection.models {
+			continue
+		}
+		label := "Additional textures: " + category.name
+		if category.placement {
+			label += " (with placement)"
+		}
+		progress.report(label)
+		if err := buildWorldCategory(stock, art, output, category, supplied, progress); err != nil {
 			return fmt.Errorf("%s: %w", category.name, err)
 		}
 	}
 	return nil
 }
 
-func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, category worldCategory, supplied map[resourceID]bool) error {
+func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, category worldCategory, supplied map[resourceID]bool, progress buildProgress) error {
 	var ids []resourceID
 	for _, id := range stock.order {
-		if id.group == category.group {
+		if id.group == category.group && !(category.placement && supplied[id]) {
 			ids = append(ids, id)
 		}
 	}
@@ -96,10 +104,9 @@ func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, cat
 			return writeArchive(w, entries)
 		})
 	}
-	for _, id := range ids {
-		if category.placement && supplied[id] {
-			continue
-		}
+	report := progress.track(len(ids))
+	for i, id := range ids {
+		report(i)
 		location := stock.owners[id]
 		data, err := location.archive.read(location.record)
 		if err != nil {
@@ -132,6 +139,7 @@ func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, cat
 			fmt.Printf("%s: %d textures prepared\n", prefix, count)
 		}
 	}
+	report(len(ids))
 	if len(entries) != 0 {
 		if err := write(); err != nil {
 			return err

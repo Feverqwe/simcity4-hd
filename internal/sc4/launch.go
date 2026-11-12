@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"unicode"
 )
 
 const defaultResolution = "3840x2160"
@@ -39,8 +38,7 @@ func launchPaths(game, profile string) (exe, directory, userDir string, err erro
 		return "", "", "", err
 	}
 	relative, relErr := filepath.Rel(game, profile)
-	if strings.ContainsFunc(profile, unicode.IsSpace) ||
-		(relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+	if relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", "", "", errors.New("use a separate profile directory whose path contains no spaces")
 	}
 	for _, name := range []string{"Plugins", "Regions"} {
@@ -55,28 +53,16 @@ func launchPaths(game, profile string) (exe, directory, userDir string, err erro
 	if err != nil || !info.Mode().IsRegular() {
 		return "", "", "", errors.New("game executable is missing")
 	}
-	return exe, directory, profile, nil
+	userDir, err = gameProfilePath(profile)
+	return exe, directory, userDir, err
 }
 
 func startIsolatedGame(exe, directory string, args []string) (int, error) {
 	if runtime.GOOS != "windows" {
 		return 0, errors.New("launch requires Windows")
 	}
-	processes, err := exec.Command("tasklist.exe", "/FO", "CSV", "/NH",
-		"/FI", "IMAGENAME eq SimCity 4.exe").Output()
-	if err != nil {
-		return 0, fmt.Errorf("check for a running SimCity 4 session: %w", err)
-	}
-	list := csv.NewReader(strings.NewReader(string(processes)))
-	list.FieldsPerRecord = -1
-	rows, err := list.ReadAll()
-	if err != nil {
-		return 0, fmt.Errorf("read Windows process list: %w", err)
-	}
-	for _, row := range rows {
-		if len(row) != 0 && strings.EqualFold(row[0], "SimCity 4.exe") {
-			return 0, errors.New("close the current SimCity 4 session before starting the isolated profile")
-		}
+	if err := ensureGameNotRunning(); err != nil {
+		return 0, err
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = directory
@@ -86,6 +72,28 @@ func startIsolatedGame(exe, directory string, args []string) (int, error) {
 	}
 	pid := command.Process.Pid
 	return pid, command.Process.Release()
+}
+
+func ensureGameNotRunning() error {
+	tasklist := exec.Command("tasklist.exe", "/FO", "CSV", "/NH",
+		"/FI", "IMAGENAME eq SimCity 4.exe")
+	configureBackgroundProcess(tasklist)
+	processes, err := tasklist.Output()
+	if err != nil {
+		return fmt.Errorf("check for a running SimCity 4 session: %w", err)
+	}
+	list := csv.NewReader(strings.NewReader(string(processes)))
+	list.FieldsPerRecord = -1
+	rows, err := list.ReadAll()
+	if err != nil {
+		return fmt.Errorf("read Windows process list: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) != 0 && strings.EqualFold(row[0], "SimCity 4.exe") {
+			return errors.New("close the current SimCity 4 session before continuing")
+		}
+	}
+	return nil
 }
 
 func runLaunch(args []string, out io.Writer) error {
@@ -99,7 +107,7 @@ func runLaunch(args []string, out io.Writer) error {
 		return err
 	}
 	if flags.NArg() != 2 {
-		return errors.New("usage: simcity4-hd launch [OPTIONS] GAME_COPY PROFILE")
+		return errors.New("usage: simcity4-uhd launch [OPTIONS] GAME_COPY PROFILE")
 	}
 	explicitResolution := false
 	flags.Visit(func(f *flag.Flag) {

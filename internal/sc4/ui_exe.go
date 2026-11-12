@@ -557,7 +557,7 @@ func runUIExecutable(args []string) error {
 		return errors.New("texture scale must be 2 or 4")
 	}
 	if len(args) != 2 {
-		return errors.New("usage: simcity4-hd patch-ui-exe GAME_DIR OUTPUT.exe")
+		return errors.New("usage: simcity4-uhd patch-ui-exe GAME_DIR OUTPUT.exe")
 	}
 	data, err := os.ReadFile(filepath.Join(args[0], "Apps", "SimCity 4.exe"))
 	if err != nil {

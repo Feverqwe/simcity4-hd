@@ -40,7 +40,7 @@ jobs:
               throw 'Expected a version tag such as v1.2.3 or v1.2.3-rc.1.'
             }
           }
-          $name = 'simcity4-hd-windows-amd64.exe'
+          $name = 'simcity4-uhd-windows-amd64.exe'
           go build -trimpath -ldflags "-X main.version=$version" -o $name .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $actual = & ".\$name" --version
@@ -52,22 +52,67 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
-          name: simcity4-hd-${{ steps.build.outputs.version }}-windows-amd64
+          name: simcity4-uhd-${{ steps.build.outputs.version }}-windows-amd64
           path: |
-            simcity4-hd-windows-amd64.exe
-            simcity4-hd-windows-amd64.exe.sha256
+            simcity4-uhd-windows-amd64.exe
+            simcity4-uhd-windows-amd64.exe.sha256
+          if-no-files-found: error
+
+  installer:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: installer/go.mod
+          cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: simcity4-uhd-${{ needs.build.outputs.version }}-windows-amd64
+          path: builder
+      - name: Prepare Qt and MinGW
+        run: ./installer/ci-qt.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'qt-kit')
+      - name: Build the self-contained installer
+        run: |
+          $qt = Join-Path $env:RUNNER_TEMP 'qt-kit'
+          $env:Path = "$(Join-Path $qt 'bin');$(Join-Path $qt 'Tools/mingw1310_64/bin');$env:Path"
+          $backend = 'builder/simcity4-uhd-windows-amd64.exe'
+          $expected = ((Get-Content -Raw "$backend.sha256") -split '\s+')[0]
+          if ((Get-FileHash -Algorithm SHA256 $backend).Hash.ToLowerInvariant() -cne $expected) {
+            throw 'The builder checksum does not match.'
+          }
+          ./installer/package.ps1 -QtRoot $qt -Backend $backend -Output dist/SimCity4UHD-Setup.exe
+          $name = 'SimCity4UHD-Setup.exe'
+          $runtime = Join-Path $env:RUNNER_TEMP "setup-$([Guid]::NewGuid())"
+          $extract = Start-Process -FilePath "dist/$name" -Wait -PassThru -ArgumentList @('--extract-to', ('"{0}"' -f $runtime))
+          if ($extract.ExitCode -ne 0 -or
+              (Get-FileHash -Algorithm SHA256 (Join-Path $runtime 'app.exe')).Hash.ToLowerInvariant() -cne $expected) {
+            throw 'The self-contained setup does not contain the verified builder.'
+          }
+          Remove-Item -LiteralPath $runtime -Recurse
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath "dist/$name").Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simcity4-uhd-windows-installer
+          path: dist/*
           if-no-files-found: error
 
   release:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build
+    needs: [build, installer]
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: simcity4-hd-${{ needs.build.outputs.version }}-windows-amd64
+          name: simcity4-uhd-${{ needs.build.outputs.version }}-windows-amd64
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: simcity4-uhd-windows-installer
           path: release
       - name: Publish verified Windows build
         working-directory: release
@@ -76,10 +121,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.build.outputs.version }}
         run: |
-          sha256sum --check simcity4-hd-windows-amd64.exe.sha256
+          sha256sum --check simcity4-uhd-windows-amd64.exe.sha256
+          sha256sum --check SimCity4UHD-Setup.exe.sha256
           flags=(--verify-tag --generate-notes)
           if [[ "${RELEASE_TAG%%+*}" == *-* ]]; then
             flags+=(--prerelease)
           fi
           gh release create "$RELEASE_TAG" "${flags[@]}" \
-            simcity4-hd-windows-amd64.exe simcity4-hd-windows-amd64.exe.sha256
+            simcity4-uhd-windows-amd64.exe simcity4-uhd-windows-amd64.exe.sha256 \
+            SimCity4UHD-Setup.exe SimCity4UHD-Setup.exe.sha256

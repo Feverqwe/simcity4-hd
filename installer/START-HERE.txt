@@ -1,0 +1,14 @@
+SimCity 4 UHD Setup
+
+1. Close SimCity 4, open SimCity4UHD-Setup.exe and select Install.
+2. When setup finishes, select Play for SimCity 4 Deluxe in Steam.
+
+The mod uses your existing saves. Setup starts with the main display's
+current resolution. You can select a different mode in Advanced options.
+After installation, edit Plugins\SC4GraphicsOptions.ini to change it.
+Setup keeps a stock executable backup in Apps if it patches the executable.
+
+Setup requires the original Steam version of SimCity 4 Deluxe. Upscaling
+uncached textures requires an NVIDIA GPU with CUDA and bfloat16 support,
+an up-to-date driver, and an internet connection. Use the same texture
+cache to resume. Advanced options lets you choose the cache and textures.

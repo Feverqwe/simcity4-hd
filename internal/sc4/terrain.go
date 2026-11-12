@@ -78,7 +78,7 @@ func upscaleTerrain(data []byte, element fshElement) ([]byte, error) {
 	return result, nil
 }
 
-func indexedTerrainEntries(game string) ([]resource, error) {
+func indexedTerrainEntries(game string, progress buildProgress) ([]resource, error) {
 	catalog, err := openGameCatalog(game, func(id resourceID) bool {
 		return id.kind == fshResource && id.group == terrainGroup
 	})
@@ -87,7 +87,9 @@ func indexedTerrainEntries(game string) ([]resource, error) {
 	}
 	defer catalog.close()
 	var entries []resource
-	for _, id := range catalog.order {
+	report := progress.track(len(catalog.order))
+	for i, id := range catalog.order {
+		report(i)
 		source := catalog.owners[id]
 		data, err := source.archive.read(source.record)
 		if err != nil {
@@ -113,14 +115,15 @@ func indexedTerrainEntries(game string) ([]resource, error) {
 	if len(entries) == 0 {
 		return nil, errors.New("no two-dimensional indexed terrain maps found")
 	}
+	report(len(catalog.order))
 	return entries, nil
 }
 
 func runIndexedTerrain(args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: simcity4-hd terrain-indexed GAME_DIR OUTPUT.dat")
+		return errors.New("usage: simcity4-uhd terrain-indexed GAME_DIR OUTPUT.dat")
 	}
-	entries, err := indexedTerrainEntries(args[0])
+	entries, err := indexedTerrainEntries(args[0], buildProgress{})
 	if err != nil {
 		return err
 	}

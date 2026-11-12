@@ -1,6 +1,7 @@
 package sc4
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,4 +31,16 @@ func publishFile(output string, write func(io.Writer) error) error {
 	} else {
 		return err
 	}
+}
+
+type contextReader struct {
+	ctx context.Context
+	io.Reader
+}
+
+func (r contextReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Reader.Read(b)
 }

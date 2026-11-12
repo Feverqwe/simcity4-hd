@@ -90,13 +90,15 @@ func addSKUIcons(catalog *gameCatalog, game string, isIcon func(resourceID) bool
 	return nil
 }
 
-func catalogSheetEntries(game, cache string, scale int, infer func([]byte) ([]byte, error)) (square, bridge []resource, err error) {
+func catalogSheetEntries(game, cache string, scale int, infer func([]byte) ([]byte, error), progress buildProgress) (square, bridge []resource, err error) {
 	catalog, err := readCatalogIcons(game)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer catalog.close()
-	for _, id := range catalog.order {
+	report := progress.track(len(catalog.order))
+	for i, id := range catalog.order {
+		report(i)
 		location := catalog.owners[id]
 		stock, err := location.archive.read(location.record)
 		if err != nil {
@@ -133,6 +135,7 @@ func catalogSheetEntries(game, cache string, scale int, infer func([]byte) ([]by
 	if len(square) == 0 || len(bridge) == 0 {
 		return nil, nil, errors.New("expected square and bridge catalog sheets")
 	}
+	report(len(catalog.order))
 	return square, bridge, nil
 }
 
@@ -148,7 +151,7 @@ func runCatalogSheets(args []string) error {
 	}
 	args = flags.Args()
 	if len(args) != 3 {
-		return errors.New("usage: simcity4-hd catalog-sheets [OPTIONS] GAME_DIR X4_CACHE NEW_OUTPUT_DIR")
+		return errors.New("usage: simcity4-uhd catalog-sheets [OPTIONS] GAME_DIR X4_CACHE NEW_OUTPUT_DIR")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -166,7 +169,7 @@ func runCatalogSheets(args []string) error {
 			return worker.upscalePNG(png)
 		}
 	}
-	square, bridge, err := catalogSheetEntries(args[0], args[1], 4, infer)
+	square, bridge, err := catalogSheetEntries(args[0], args[1], 4, infer, buildProgress{})
 	if worker != nil {
 		if err != nil {
 			cancel()

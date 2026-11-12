@@ -64,9 +64,13 @@ func stationArt(art worldArtwork, id uint32, original []byte, source *image.NRGB
 	return hd, nil
 }
 
-func stationEntries(stock *gameCatalog, art worldArtwork) (day, night []resource, err error) {
-	for zoom := range uint32(5) {
-		for rotation := range uint32(4) {
+func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress) (day, night []resource, err error) {
+	const zoomLevels, rotations, texturesPerModel = 5, 4, 2
+	report := progress.track(zoomLevels * rotations * texturesPerModel)
+	for zoom := range uint32(zoomLevels) {
+		for rotation := range uint32(rotations) {
+			processed := int(zoom*rotations+rotation) * texturesPerModel
+			report(processed)
 			offset := zoom*256 + rotation*16
 			dayID := stationBase + offset
 			targetID := stationHDBase + offset
@@ -101,6 +105,7 @@ func stationEntries(stock *gameCatalog, art worldArtwork) (day, night []resource
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", textureKey, err)
 			}
+			report(processed + 1)
 			originalNight, err := readWorldStock(stock, nightKey)
 			if err != nil {
 				return nil, nil, err
@@ -121,6 +126,7 @@ func stationEntries(stock *gameCatalog, art worldArtwork) (day, night []resource
 			night = append(night, resource{nightKey, hdNight})
 		}
 	}
+	report(zoomLevels * rotations * texturesPerModel)
 	return day, night, nil
 }
 

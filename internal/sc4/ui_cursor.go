@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"path/filepath"
 	"slices"
 )
 
@@ -192,8 +191,7 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork) (*image.NRGBA, error
 		return nil, err
 	}
 	// Variants with identical RGB share inference even when their masks differ.
-	_, enlarged, err := cachedUIAtlas(filepath.Join(art.cache, "ui-cursors-x4"), resourceID{kind: cursorResource},
-		input, []int{w}, 4, art.infer)
+	_, enlarged, err := art.atlas("ui-cursors-x4", resourceID{kind: cursorResource}, input, []int{w})
 	if err != nil {
 		return nil, err
 	}

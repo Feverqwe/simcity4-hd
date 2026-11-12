@@ -10,7 +10,19 @@ import (
 	"path/filepath"
 )
 
-func runBuildWorld(args []string) (result error) {
+type worldSelection struct {
+	network, terrain, models bool
+}
+
+const modelOverridesPackage = "model-overrides-x4.dat"
+
+func (s worldSelection) any() bool { return s.network || s.terrain || s.models }
+
+func runBuildWorld(args []string) error {
+	return buildWorldWithProgress(context.Background(), args, buildProgress{}, worldSelection{network: true, terrain: true, models: true})
+}
+
+func buildWorldWithProgress(ctx context.Context, args []string, progress buildProgress, selection worldSelection) (result error) {
 	flags := flag.NewFlagSet("world", flag.ContinueOnError)
 	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
@@ -21,7 +33,7 @@ func runBuildWorld(args []string) (result error) {
 		return err
 	}
 	if flags.NArg() != 3 {
-		return errors.New("usage: simcity4-hd world [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
+		return errors.New("usage: simcity4-uhd world [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
@@ -43,23 +55,31 @@ func runBuildWorld(args []string) (result error) {
 		return err
 	}
 	write := func(name string, entries []resource) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return publishFile(filepath.Join(plugins, name), func(w io.Writer) error {
 			return writeArchive(w, entries)
 		})
 	}
 
-	report, err := indexMaterials(game)
-	if err != nil {
-		return err
+	progress.report("Reading game textures")
+	var report *materialReport
+	if selection.network || selection.models {
+		report, err = indexMaterials(game)
+		if err != nil {
+			return err
+		}
 	}
 	stock, err := openGameCatalog(game, func(id resourceID) bool {
-		return id.kind == fshResource || id.kind == s3dResource && id.group == stationModelGroup
+		return id.kind == fshResource || selection.models && id.kind == s3dResource && id.group == stationModelGroup
 	})
 	if err != nil {
 		return err
 	}
 	defer stock.close()
-	ctx, cancel := context.WithCancel(context.Background())
+	config.prepare = progress.prepare
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	art, closeWorker := worldInference(ctx, cache, config)
 	defer func() {
@@ -68,45 +88,56 @@ func runBuildWorld(args []string) (result error) {
 		}
 		result = errors.Join(result, closeWorker())
 	}()
-	network, err := networkEntries(stock, report, art)
-	if err != nil {
-		return fmt.Errorf("build network: %w", err)
+	if selection.network {
+		progress.report("Roads and rail")
+		network, err := networkEntries(stock, report, art, progress)
+		if err != nil {
+			return fmt.Errorf("build network: %w", err)
+		}
+		if err := write("network-x4.dat", network); err != nil {
+			return err
+		}
 	}
-	if err := write("network-x4.dat", network); err != nil {
-		return err
+	if selection.terrain {
+		progress.report("Terrain")
+		indexed, err := indexedTerrainEntries(game, progress)
+		if err != nil {
+			return err
+		}
+		if err := write("terrain-indexed-x4.dat", indexed); err != nil {
+			return err
+		}
 	}
-	indexed, err := indexedTerrainEntries(game)
-	if err != nil {
-		return err
+	var supplied map[resourceID]bool
+	if selection.models {
+		progress.report("Buildings, props and effects")
+		supplied, err = buildModelBatches(stock, report, art, plugins, progress)
+		if err != nil {
+			return fmt.Errorf("build models: %w", err)
+		}
 	}
-	if err := write("terrain-indexed-x4.dat", indexed); err != nil {
-		return err
-	}
-	supplied, err := buildModelBatches(stock, report, art, plugins)
-	if err != nil {
-		return fmt.Errorf("build models: %w", err)
-	}
-	if err := buildCategoryBatches(stock, art, plugins, supplied); err != nil {
+	if err := buildCategoryBatches(stock, art, plugins, supplied, selection, progress); err != nil {
 		return err
 	}
 	if err := closeWorker(); err != nil {
 		return err
 	}
-	config.scale, config.tile, config.overlap = 4, 48, 12
-	art, closeWorker = worldInference(ctx, cache, config)
-	day, night, err := stationEntries(stock, art)
-	if err != nil {
-		return fmt.Errorf("build fire station: %w", err)
+	if selection.models {
+		config.scale, config.tile, config.overlap = 4, 48, 12
+		art, closeWorker = worldInference(ctx, cache, config)
+		progress.report("Preparing model material overrides")
+		day, night, err := stationEntries(stock, art, progress)
+		if err != nil {
+			return fmt.Errorf("build fire station: %w", err)
+		}
+		if err := closeWorker(); err != nil {
+			return err
+		}
+		if err := write(modelOverridesPackage, append(day, night...)); err != nil {
+			return err
+		}
 	}
-	if err := closeWorker(); err != nil {
-		return err
-	}
-	if err := write("fire-station-x4.dat", day); err != nil {
-		return err
-	}
-	if err := write("fire-station-night-x4.dat", night); err != nil {
-		return err
-	}
+	progress.report("Checking world files")
 	paths, err := packagePaths([]string{plugins})
 	if err != nil {
 		return err

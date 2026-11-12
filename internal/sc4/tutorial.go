@@ -141,7 +141,7 @@ func buildTutorial(locale, output string) (int, error) {
 
 func runTutorial(args []string) error {
 	if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-		return errors.New("usage: simcity4-hd tutorial GAME_DIR OUTPUT.dat")
+		return errors.New("usage: simcity4-uhd tutorial GAME_DIR OUTPUT.dat")
 	}
 	count, err := buildTutorial(filepath.Join(args[0], "SimCityLocale.DAT"), args[1])
 	if err != nil {

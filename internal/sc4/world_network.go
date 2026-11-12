@@ -79,14 +79,16 @@ func networkTextureAtZoom(e fshElement, zoom int) bool {
 		e.centerX == 0 && e.centerY == 0 && e.offsetX&0xfff == 8 && e.offsetY&0xfff == 0
 }
 
-func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtwork) ([]resource, error) {
+func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtwork, progress buildProgress) ([]resource, error) {
 	ids, err := networkFamilyIDs(stock, materials)
 	if err != nil {
 		return nil, err
 	}
 	cache := filepath.Join(art.cache, "world", hatCheckpointSHA, "network-fsh-x4-v1")
 	entries := make([]resource, 0, len(ids))
-	for _, id := range ids {
+	report := progress.track(len(ids))
+	for i, id := range ids {
+		report(i)
 		location := stock.owners[id]
 		original, err := location.archive.read(location.record)
 		if err != nil {
@@ -101,6 +103,7 @@ func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtw
 			fmt.Printf("Network: %d/%d textures prepared\n", len(entries), len(ids))
 		}
 	}
+	report(len(ids))
 	return entries, nil
 }
 
@@ -115,7 +118,7 @@ func runNetworkTextures(args []string) (result error) {
 		return err
 	}
 	if flags.NArg() != 3 {
-		return errors.New("usage: simcity4-hd network-textures [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DAT")
+		return errors.New("usage: simcity4-uhd network-textures [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DAT")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
@@ -145,7 +148,7 @@ func runNetworkTextures(args []string) (result error) {
 		}
 		result = errors.Join(result, closeWorker())
 	}()
-	entries, err := networkEntries(stock, materials, art)
+	entries, err := networkEntries(stock, materials, art, buildProgress{})
 	if err != nil {
 		return err
 	}

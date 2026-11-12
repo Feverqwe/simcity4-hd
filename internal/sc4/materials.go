@@ -152,7 +152,7 @@ func indexMaterials(game string) (*materialReport, error) {
 
 func runMaterialIndex(args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: simcity4-hd index-materials GAME_DIR OUTPUT.json")
+		return errors.New("usage: simcity4-uhd index-materials GAME_DIR OUTPUT.json")
 	}
 	report, err := indexMaterials(args[0])
 	if err != nil {

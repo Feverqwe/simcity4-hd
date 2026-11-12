@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 
@@ -28,6 +29,7 @@ type inferenceConfig struct {
 	distro, python, weights string
 	scale, tile, overlap    int
 	wsl                     bool
+	prepare                 func() (python, weights string, err error)
 }
 
 func inferenceFlags(flags *flag.FlagSet) func() (inferenceConfig, error) {
@@ -63,6 +65,13 @@ func inferenceFlags(flags *flag.FlagSet) func() (inferenceConfig, error) {
 }
 
 func startInference(ctx context.Context, config inferenceConfig, diagnostics io.Writer) (*inferenceWorker, error) {
+	if config.prepare != nil {
+		var err error
+		config.python, config.weights, err = config.prepare()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if config.python == "" || config.weights == "" || config.tile <= 0 || config.overlap < 0 ||
 		(config.scale != 2 && config.scale != 4) {
 		return nil, errors.New("invalid inference configuration")
@@ -83,10 +92,17 @@ func startInference(ctx context.Context, config inferenceConfig, diagnostics io.
 		if config.distro != "" {
 			return nil, errors.New("select the WSL distribution before running the Linux builder")
 		}
+		if config.prepare != nil {
+			workerArgs = append([]string{"-I"}, workerArgs...)
+		}
 		command = exec.CommandContext(ctx, config.python, workerArgs...)
+		if config.prepare != nil {
+			command.Dir = filepath.Dir(config.python)
+		}
 	default:
 		return nil, errors.New("HAT inference requires Windows or Linux")
 	}
+	configureBackgroundProcess(command)
 	command.Stderr = diagnostics
 	input, err := command.StdinPipe()
 	if err != nil {
@@ -134,3 +150,37 @@ func (w *inferenceWorker) upscalePNG(image []byte) ([]byte, error) {
 func (w *inferenceWorker) close() error {
 	return errors.Join(w.input.Close(), w.command.Wait())
 }
+
+// buildProgress lets the installer provision inference only on a cache miss.
+type buildProgress struct {
+	prepare   func() (string, string, error)
+	step      func(string)
+	resources func(done, total int)
+}
+
+func (p buildProgress) report(step string) {
+	if p.step != nil {
+		p.step(step)
+	}
+}
+
+func (p buildProgress) track(total int) func(int) {
+	if p.resources == nil || total == 0 {
+		return func(int) {}
+	}
+	return func(done int) { p.resources(done, total) }
+}
+
+func (p buildProgress) count() func() {
+	if p.resources == nil {
+		return nil
+	}
+	done := 0
+	p.resources(done, 0)
+	return func() {
+		done++
+		p.resources(done, 0)
+	}
+}
+
+func (c inferenceConfig) enabled() bool { return c.weights != "" || c.prepare != nil }
