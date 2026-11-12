@@ -60,7 +60,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 			result.WriteString(line)
 			continue
 		}
-		if instance == 0xc973b411 && textureScale == 4 && strings.Contains(line, " id=0x99887766 ") {
+		if instance == 0xc973b411 && strings.Contains(line, " id=0x99887766 ") {
 			// The Query frame is 37 pixels wide. Give its backing surface the
 			// full frame width, as for the Route Query button below.
 			const old = "area=(95,85,131,106)"
@@ -146,7 +146,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				// use the stock draw path and the same screen-size source rect.
 				return fmt.Sprintf("image={%08x,%08x}", mayorRatingGroup, source.instance)
 			}
-			project := textureScale == 4 && (nativeControl || frames == 4 && nativeButtonAtlas(source))
+			project := nativeControl || frames == 4 && nativeButtonAtlas(source)
 			atlas := layoutAtlas{source: source, frames: frames, project: project}
 			target, exists := w.variants[atlas]
 			if !exists {

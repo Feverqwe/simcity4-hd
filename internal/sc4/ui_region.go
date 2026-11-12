@@ -39,7 +39,7 @@ func regionEntries(stock uiStock, config string, textureScale int, art func(layo
 			source := resourceID{uiImage, catalogFrameGroup, atlas.instance}
 			original := fmt.Sprintf("{%08x,%08x}", source.group, source.instance)
 			// The city selection background and the settings frames use native drawing.
-			project := textureScale == 4 && (atlas.instance == 0x14416307 || atlas.instance == 0x144161e4)
+			project := atlas.instance == 0x14416307 || atlas.instance == 0x144161e4
 			targetGroup := group
 			if project {
 				targetGroup += 0x20

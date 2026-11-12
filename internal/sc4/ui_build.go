@@ -129,9 +129,6 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		{budgetDetailsImage, budgetDetailsImage, budgetRowArtGroup, 4},
 		{budgetCloseImage, budgetCloseHD, budgetRowArtGroup, 4},
 	} {
-		if art.scale != 4 && atlas.source != playlistCheckboxImage {
-			continue
-		}
 		source := resourceID{uiImage, catalogFrameGroup, atlas.source}
 		target := resourceID{uiImage, atlas.group, atlas.target}
 		if _, exists := stock.index[target]; exists {
@@ -164,20 +161,18 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		}
 		entries = append(entries, resource{target, data})
 	}
-	if art.scale == 4 {
-		config, err = addLayoutFontAliases(config, []fontAlias{
-			{"BdgtPopupHeader", "HDBdgtPopupHeader"},
-			{"BdgtPopupBody", "HDBdgtPopupBody"},
-			{"GenHeader", "HDgenheader"},
-			{"GenButton", "HDgenbutton"},
-			{"BdgtLedgerHeader", "HDbdgtledgerheader"},
-			{"BdgtLedgerLineLite", "HDbdgtledgerlinelite"},
-			{"BdgtLedgerLineLiteUnder", "HDbdgtledgerlineliteunder"},
-			{"BdgtLedgerLineHeavy", "HDbdgtledgerlineheavy"},
-		})
-		if err != nil {
-			return nil, err
-		}
+	config, err = addLayoutFontAliases(config, []fontAlias{
+		{"BdgtPopupHeader", "HDBdgtPopupHeader"},
+		{"BdgtPopupBody", "HDBdgtPopupBody"},
+		{"GenHeader", "HDgenheader"},
+		{"GenButton", "HDgenbutton"},
+		{"BdgtLedgerHeader", "HDbdgtledgerheader"},
+		{"BdgtLedgerLineLite", "HDbdgtledgerlinelite"},
+		{"BdgtLedgerLineLiteUnder", "HDbdgtledgerlineliteunder"},
+		{"BdgtLedgerLineHeavy", "HDbdgtledgerlineheavy"},
+	})
+	if err != nil {
+		return nil, err
 	}
 	for instance := uint32(0x1441624a); instance <= 0x1441624c; instance++ {
 		source := resourceID{uiImage, catalogFrameGroup, instance}

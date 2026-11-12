@@ -180,13 +180,6 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			// stock continuation clips those limits to the bitmap size.
 			hexBytes("f686fb00000020740401d201c98d86e8000000"))
 		patches = append(patches, previewCrop)
-
-		// This constructor is shared by the four dynamically built budget
-		// slider paths. Give the stock slider the projected four-state atlas.
-		var budgetSlider instructionPatch
-		stub, budgetSlider = appendStub(stub, stubRVA, 0x379508, hexBytes("8bf08b168bce"), budgetSliderArt)
-		patches = append(patches, budgetSlider)
-
 	}
 
 	// The city loads its live rating sprite during initialization and
@@ -196,37 +189,10 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			little.AppendUint32(nil, mayorRatingGroup)})
 	}
 
-	if textureScale == 4 {
-		// Both Ordinances ledgers share a dedicated checkbox constructor.
-		patches = append(patches, instructionPatch{0x37b7c1,
-			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
-	}
-
 	// Both Audio Options playlist sources use the native checkbox painter.
 	for _, site := range []int{0xf4b84, 0xf4e43} {
 		patches = append(patches, instructionPatch{site,
 			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
-	}
-
-	if textureScale == 4 {
-		// The checkbox frame grew around the old top-left anchor.
-		// Center it in the ledger row before the dialog doubles its positions.
-		var checkboxPosition instructionPatch
-		stub, checkboxPosition = appendStub(stub, stubRVA, 0x37b90c,
-			hexBytes("8b1750518bcf"), hexBytes("8b1783e80550518bcf"))
-		patches = append(patches, checkboxPosition)
-
-		// Open Details and the enlarged empty-dialog close button use
-		// projected atlases. Preserve the stock group for other callers.
-		var budgetDetailsArt instructionPatch
-		stub, budgetDetailsArt = appendStub(stub, stubRVA, 0x37b970,
-			hexBytes("5068b006a046"),
-			hexBytes("503db755011474073d60624114750768c8404ae7eb0568b006a046"))
-		patches = append(patches, budgetDetailsArt,
-			// The active-state frame is wider than the glyph. Leave room
-			// for the label that starts at X=48 in department rows.
-			instruction(0x388abf, "6a12", "6a0e"),
-			instruction(0x388f94, "6a12", "6a0e"))
 	}
 
 	// The import dialog loads its folder and city icons directly.
@@ -299,78 +265,12 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
 	patches = append(patches, graphSeries)
 
+	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
 	if textureScale == 4 {
-		// Empty ledger sections share a dialog built in code. Keep the
-		// root, text pane, and frame at the same size for layout and input.
-		for _, site := range []int{0x37c19e, 0x37c1b0, 0x37c1d9, 0x37c2e0, 0x37c301} {
-			var emptyLedgerSize instructionPatch
-			stub, emptyLedgerSize = appendStub(stub, stubRVA, site,
-				hexBytes("6a64682c010000"), hexBytes("68c80000006858020000"))
-			patches = append(patches, emptyLedgerSize)
-		}
-		patches = append(patches,
-			instruction(0x37c254, "6807d385ea", "687ecf0353"), // HDBdgtPopupHeader
-			instruction(0x37c27e, "6808d385ea", "685e3d6e95"), // HDBdgtPopupBody
-			instruction(0x37c260, "6a056a0a", "6a0a6a14"),
-			instruction(0x37c286, "6a196a0f", "6a326a1e"),
-			instruction(0x37c2b5, "68b4550114", "6860624114"),
-			instruction(0x37c2ba, "6a0b680d010000", "6a12681a020000"))
-
-		// The funding refresh recomputes the marker's X in stock units.
-		// Its Y already comes from the resized control.
-		var budgetMarker instructionPatch
-		stub, budgetMarker = appendStub(stub, stubRVA, 0x38a729,
-			hexBytes("508bcfff93e0000000"), hexBytes("8d0400508bcfff93e0000000"))
-		patches = append(patches, budgetMarker)
-
-		// The department income table creates its labels and amounts
-		// with the stock ledger fonts, including on a row rebuild.
-		for _, site := range []int{0x388517, 0x3885a0} {
-			patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
-		}
-		for _, site := range []int{0x3885f9, 0x38873d, 0x38879b, 0x3887eb} {
-			patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
-		}
-
-		// Funding refresh reapplies fonts in separate income and expense
-		// loops. Keep both branches consistent with the initial layout.
-		for _, site := range []int{0x389cb2, 0x389d91, 0x38a3a0, 0x38a479} {
-			patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
-		}
-		for _, site := range []int{0x389ecf, 0x389f71, 0x38a9ed, 0x38aa9d} {
-			patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
-		}
-
-		// Resize the completed department windows after their controls
-		// have been constructed. Empty sections return earlier.
-		budgetScaleRVA := stubRVA + len(stub)
-		stub = append(stub, budgetTreeScale...)
-		for _, layout := range []struct {
-			site int
-			root byte
-			mode byte
-			next string
-		}{
-			{0x3875ca, 0x57, 1, "8d8c2418010000"}, // 650 px dialog, EDI
-			{0x38976c, 0x55, 1, "8d8c2458010000"}, // 500 px dialog, EBP
-			{0x387c47, 0x55, 2, "8d8c2428010000"}, // 450 px Ordinances, EBP
-		} {
-			const fontManagerRVA = 0x513c72
-			start := stubRVA + len(stub)
-			body := []byte{0x50} // Preserve EAX across the adapter.
-			body = append(body, relativeInstruction(0xe8, start+len(body), fontManagerRVA)...)
-			body = append(body, 0x50, 0x6a, layout.mode, layout.root) // Font manager, center flag, dialog.
-			body = append(body, relativeInstruction(0xe8, start+len(body), budgetScaleRVA)...)
-			body = append(body, hexBytes("83c40c58")...) // Drop arguments, restore EAX.
-			body = append(body, hexBytes(layout.next)...)
-			var budgetTree instructionPatch
-			stub, budgetTree = appendStub(stub, stubRVA, layout.site, hexBytes(layout.next), body)
-			patches = append(patches, budgetTree)
-		}
-
 		var gauges instructionPatch
 		// Free Drive gauges select a stock frame at runtime. Stretch the
 		// destination to the doubled HUD size while keeping the source cell.
+		// With ×2 textures the native draw already uses screen-sized cells.
 		stub, gauges = appendStub(stub, stubRVA, 0x3628c4,
 			hexBytes("897c241c895c2420"), hexBytes("8d143f8954241c8d141b89542420"))
 		patches = append(patches, gauges)
@@ -505,6 +405,106 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	little.PutUint16(data[pe+22:], little.Uint16(data[pe+22:])|0x20)
 	little.PutUint32(data[pe+88:], peChecksum(data, pe+88))
 	return data, nil
+}
+
+func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {
+	// This constructor is shared by the four dynamically built budget
+	// slider paths. Give the stock slider the projected four-state atlas.
+	var budgetSlider instructionPatch
+	stub, budgetSlider = appendStub(stub, stubRVA, 0x379508, hexBytes("8bf08b168bce"), budgetSliderArt)
+	patches = append(patches, budgetSlider)
+
+	// Both Ordinances ledgers share a dedicated checkbox constructor.
+	patches = append(patches, instructionPatch{0x37b7c1,
+		little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
+
+	// The checkbox frame grew around the old top-left anchor.
+	// Center it in the ledger row before the dialog doubles its positions.
+	var checkboxPosition instructionPatch
+	stub, checkboxPosition = appendStub(stub, stubRVA, 0x37b90c,
+		hexBytes("8b1750518bcf"), hexBytes("8b1783e80550518bcf"))
+	patches = append(patches, checkboxPosition)
+
+	// Open Details and the enlarged empty-dialog close button use
+	// projected atlases. Preserve the stock group for other callers.
+	var budgetDetailsArt instructionPatch
+	stub, budgetDetailsArt = appendStub(stub, stubRVA, 0x37b970,
+		hexBytes("5068b006a046"),
+		hexBytes("503db755011474073d60624114750768c8404ae7eb0568b006a046"))
+	patches = append(patches, budgetDetailsArt,
+		// The active-state frame is wider than the glyph. Leave room
+		// for the label that starts at X=48 in department rows.
+		instruction(0x388abf, "6a12", "6a0e"),
+		instruction(0x388f94, "6a12", "6a0e"))
+
+	// Empty ledger sections share a dialog built in code. Keep the
+	// root, text pane, and frame at the same size for layout and input.
+	for _, site := range []int{0x37c19e, 0x37c1b0, 0x37c1d9, 0x37c2e0, 0x37c301} {
+		var emptyLedgerSize instructionPatch
+		stub, emptyLedgerSize = appendStub(stub, stubRVA, site,
+			hexBytes("6a64682c010000"), hexBytes("68c80000006858020000"))
+		patches = append(patches, emptyLedgerSize)
+	}
+	patches = append(patches,
+		instruction(0x37c254, "6807d385ea", "687ecf0353"), // HDBdgtPopupHeader
+		instruction(0x37c27e, "6808d385ea", "685e3d6e95"), // HDBdgtPopupBody
+		instruction(0x37c260, "6a056a0a", "6a0a6a14"),
+		instruction(0x37c286, "6a196a0f", "6a326a1e"),
+		instruction(0x37c2b5, "68b4550114", "6860624114"),
+		instruction(0x37c2ba, "6a0b680d010000", "6a12681a020000"))
+
+	// The funding refresh recomputes the marker's X in stock units.
+	// Its Y already comes from the resized control.
+	var budgetMarker instructionPatch
+	stub, budgetMarker = appendStub(stub, stubRVA, 0x38a729,
+		hexBytes("508bcfff93e0000000"), hexBytes("8d0400508bcfff93e0000000"))
+	patches = append(patches, budgetMarker)
+
+	// The department income table creates its labels and amounts
+	// with the stock ledger fonts, including on a row rebuild.
+	for _, site := range []int{0x388517, 0x3885a0} {
+		patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
+	}
+	for _, site := range []int{0x3885f9, 0x38873d, 0x38879b, 0x3887eb} {
+		patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
+	}
+
+	// Funding refresh reapplies fonts in separate income and expense
+	// loops. Keep both branches consistent with the initial layout.
+	for _, site := range []int{0x389cb2, 0x389d91, 0x38a3a0, 0x38a479} {
+		patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
+	}
+	for _, site := range []int{0x389ecf, 0x389f71, 0x38a9ed, 0x38aa9d} {
+		patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
+	}
+
+	// Resize the completed department windows after their controls
+	// have been constructed. Empty sections return earlier.
+	budgetScaleRVA := stubRVA + len(stub)
+	stub = append(stub, budgetTreeScale...)
+	for _, layout := range []struct {
+		site int
+		root byte
+		mode byte
+		next string
+	}{
+		{0x3875ca, 0x57, 1, "8d8c2418010000"}, // 650 px dialog, EDI
+		{0x38976c, 0x55, 1, "8d8c2458010000"}, // 500 px dialog, EBP
+		{0x387c47, 0x55, 2, "8d8c2428010000"}, // 450 px Ordinances, EBP
+	} {
+		const fontManagerRVA = 0x513c72
+		start := stubRVA + len(stub)
+		body := []byte{0x50} // Preserve EAX across the adapter.
+		body = append(body, relativeInstruction(0xe8, start+len(body), fontManagerRVA)...)
+		body = append(body, 0x50, 0x6a, layout.mode, layout.root) // Font manager, center flag, dialog.
+		body = append(body, relativeInstruction(0xe8, start+len(body), budgetScaleRVA)...)
+		body = append(body, hexBytes("83c40c58")...) // Drop arguments, restore EAX.
+		body = append(body, hexBytes(layout.next)...)
+		var budgetTree instructionPatch
+		stub, budgetTree = appendStub(stub, stubRVA, layout.site, hexBytes(layout.next), body)
+		patches = append(patches, budgetTree)
+	}
+	return stub, patches
 }
 
 // appendUISection leaves all stock sections and their file offsets in place.
