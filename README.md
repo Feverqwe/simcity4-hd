@@ -58,7 +58,7 @@ $inference = @(
 & $builder world @inference $game $cache $world
 ```
 
-Run either command on its own or build both. Each build needs a new output directory. The first build can take several hours. Keep the cache to reuse completed textures. Each output contains `Plugins`. The UI output also includes a patched `SimCity4-hd.exe`. Use `ui -texture-scale 2` for the ×2 UI texture variant. Both variants use the same HUD size on screen. Keep each variant in a separate output directory and install its matching executable and Plugins together. Rebuild UI after changing the game's language so tutorial text comes from the correct archive.
+Run either command on its own or build both. Each build needs a new output directory. The first build can take several hours. Keep the cache to reuse completed textures. Each output contains `Plugins`. The UI output also includes a patched `SimCity4-hd.exe`. Install it with the `Plugins` from the same UI build. Rebuild UI after changing the game's language so tutorial text comes from the correct archive.
 
 ### Install in an isolated profile
 
