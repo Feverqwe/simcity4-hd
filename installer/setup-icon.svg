@@ -1,11 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="2" y="2" width="60" height="60" rx="13" fill="#14283d"/>
-  <path d="M9 46 32 34 55 46 32 58Z" fill="#477d75"/>
-  <path d="M13 33 24 27 34 33 24 39Z" fill="#8edfd1"/>
-  <path d="M13 33 24 39 24 50 13 44Z" fill="#65bcb3"/>
-  <path d="M24 39 34 33 34 44 24 50Z" fill="#3d897e"/>
-  <path d="M27 17 39 10 51 17 39 24Z" fill="#ffd586"/>
-  <path d="M27 17 39 24 39 48 27 41Z" fill="#f3af57"/>
-  <path d="M39 24 51 17 51 41 39 48Z" fill="#bf783b"/>
-  <path d="M31 26 35 28V33L31 31ZM31 34 35 36V41L31 39Z" fill="#fff0b5"/>
+  <defs>
+    <linearGradient id="sunlit" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#fff2b1"/>
+      <stop offset="1" stop-color="#ed9b62"/>
+    </linearGradient>
+    <linearGradient id="shadow" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#c687b4"/>
+      <stop offset="1" stop-color="#65496f"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="9" fill="#121323"/>
+  <path d="M2 55 22 46 42 54V62H9a7 7 0 0 1-7-7Z" fill="#26263c"/>
+  <g stroke="#181628" stroke-width="1.4" stroke-linejoin="round">
+    <path d="M8 21 19 7 24 3 35 17 24 25Z" fill="#ae719e"/>
+    <path d="M8 21 19 7 24 3V25Z" fill="#fbdfa0"/>
+    <path d="M8 21 24 25V62L8 57Z" fill="url(#sunlit)"/>
+    <path d="M24 25 35 17V57L24 62Z" fill="url(#shadow)"/>
+    <path d="M29 34 34 28 43 32 37 38Z" fill="#b3a2c7"/>
+    <path d="M29 34 37 38V62L29 60Z" fill="#a77d9c"/>
+    <path d="M37 38 43 32V58L37 62Z" fill="#5a527c"/>
+    <path d="M2 42 9 36 16 40 9 46Z" fill="#ffe7a4"/>
+    <path d="M2 42 9 46V61L2 57Z" fill="#df9a6e"/>
+    <path d="M9 46 16 40V62H9Z" fill="#ad677d"/>
+  </g>
+  <path d="M12 25V36M17 26.5V39M21 28V57M5 47V54" fill="none" stroke="#805462" stroke-width="1.6"/>
+  <path d="M27 26V33M31 23V30M32 39V58M35 41V59M40 39V57" fill="none" stroke="#e4b0bb" stroke-width="1.4"/>
+  <path d="M48 9v8a5.5 5.5 0 0 0 11 0V9M48 27v12m11-12v12m-11-6h11M48 45v12h4a7 7 0 0 0 0-12Z" fill="none" stroke="#fff4d6" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
