@@ -4,15 +4,6 @@ An HD mod preview for **SimCity 4 Deluxe on Windows**, with a larger interface a
 
 ![SimCity 4 HD gameplay at 3840 × 2160](assets/screenshot.jpg)
 
-## Download Ready-to-Copy for Windows
-
-Download the prebuilt `.7z` archive from either mirror. It includes the HD texture packs, a patched game executable, the SCD3D11 renderer, and a 4K launcher.
-
-- [OneDrive](https://1drv.ms/f/c/93e54109264f3ede/IgCk1v2pSLulRb8F38sXonzfATgkeaHfZUgB9Yx_hOz1G_E)
-- [Yandex Disk](https://disk.yandex.ru/d/ybsDYO0X-H8K8w)
-
-The package requires the Steam version of SimCity 4 Deluxe (build 4644414). Open `README-HD.txt` in the archive for instructions on backing up the original executable, extracting the files into your game folder, and launching at 3840 × 2160.
-
 ## Build from source
 
 The Windows builder creates the mod from your local game installation. You supply the game, renderer, and HAT checkpoint.
