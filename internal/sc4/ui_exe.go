@@ -187,23 +187,28 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		stub, budgetSlider = appendStub(stub, stubRVA, 0x379508, hexBytes("8bf08b168bce"), budgetSliderArt)
 		patches = append(patches, budgetSlider)
 
-		// The city loads its live rating sprite during initialization and
-		// update. The region launcher loads its separate tiled sprite.
-		for _, site := range []int{0x3e8522, 0x3ed229, 0x3b5184} {
-			patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
-				little.AppendUint32(nil, mayorRatingGroup)})
-		}
+	}
 
+	// The city loads its live rating sprite during initialization and
+	// update. The region launcher loads its separate tiled sprite.
+	for _, site := range []int{0x3e8522, 0x3ed229, 0x3b5184} {
+		patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
+			little.AppendUint32(nil, mayorRatingGroup)})
+	}
+
+	if textureScale == 4 {
 		// Both Ordinances ledgers share a dedicated checkbox constructor.
 		patches = append(patches, instructionPatch{0x37b7c1,
 			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
+	}
 
-		// Both Audio Options playlist sources use the native checkbox painter.
-		for _, site := range []int{0xf4b84, 0xf4e43} {
-			patches = append(patches, instructionPatch{site,
-				little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
-		}
+	// Both Audio Options playlist sources use the native checkbox painter.
+	for _, site := range []int{0xf4b84, 0xf4e43} {
+		patches = append(patches, instructionPatch{site,
+			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
+	}
 
+	if textureScale == 4 {
 		// The checkbox frame grew around the old top-left anchor.
 		// Center it in the ledger row before the dialog doubles its positions.
 		var checkboxPosition instructionPatch
@@ -222,77 +227,79 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			// for the label that starts at X=48 in department rows.
 			instruction(0x388abf, "6a12", "6a0e"),
 			instruction(0x388f94, "6a12", "6a0e"))
+	}
 
-		// The import dialog loads its folder and city icons directly.
-		for _, site := range []int{0x379135, 0x379182, 0x3791e5} {
-			patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
-				little.AppendUint32(nil, importIconGroup)})
-		}
+	// The import dialog loads its folder and city icons directly.
+	for _, site := range []int{0x379135, 0x379182, 0x3791e5} {
+		patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
+			little.AppendUint32(nil, importIconGroup)})
+	}
 
-		// The tree's root font does not apply to dynamically created rows.
-		importNodeFontRVA := stubRVA + len(stub)
-		stub = append(stub, importNodeFont...)
-		for _, node := range []struct {
-			site int
-			next string
-		}{
-			{0x378e3f, "8b168bd88b4748"}, // Folder node.
-			{0x378fc3, "8b168be88b4758"}, // City node.
-		} {
-			body := relativeInstruction(0xe8, stubRVA+len(stub), importNodeFontRVA)
-			original := hexBytes(node.next)
-			var nodeFont instructionPatch
-			stub, nodeFont = appendStub(stub, stubRVA, node.site, original, append(body, original...))
-			patches = append(patches, nodeFont)
-		}
+	// The tree's root font does not apply to dynamically created rows.
+	importNodeFontRVA := stubRVA + len(stub)
+	stub = append(stub, importNodeFont...)
+	for _, node := range []struct {
+		site int
+		next string
+	}{
+		{0x378e3f, "8b168bd88b4748"}, // Folder node.
+		{0x378fc3, "8b168be88b4758"}, // City node.
+	} {
+		body := relativeInstruction(0xe8, stubRVA+len(stub), importNodeFontRVA)
+		original := hexBytes(node.next)
+		var nodeFont instructionPatch
+		stub, nodeFont = appendStub(stub, stubRVA, node.site, original, append(body, original...))
+		patches = append(patches, nodeFont)
+	}
 
-		// Data Views positions the legend again when switching overlays.
-		// Keep each layout's swatch column and align captions beside it.
-		var mapLegendSwatch instructionPatch
-		stub, mapLegendSwatch = appendStub(stub, stubRVA, 0x3a081a,
-			hexBytes("ff9210010000"),
-			// GetArea, then copy the current left and right into the new rectangle.
-			hexBytes("ff92c00000008b10899424980000008b5008899424a00000008bce8b16ff9210010000"))
-		patches = append(patches, mapLegendSwatch,
-			instruction(0x3a07d4, "8d573d", "8d577a"),
-			instruction(0x3a080b, "8d44383d", "8d44387a"),
-			instruction(0x3a08f4, "8d4f18", "8d4f30"),
-			instruction(0x3a08fd, "c744243c16010000", "c744243c2c020000"),
-			instruction(0x3a090b, "0516010000", "052c020000"),
-			instruction(0x3a0922, "8d4c3818", "8d4c3830"))
+	// Data Views positions the legend again when switching overlays.
+	// Keep each layout's swatch column and align captions beside it.
+	var mapLegendSwatch instructionPatch
+	stub, mapLegendSwatch = appendStub(stub, stubRVA, 0x3a081a,
+		hexBytes("ff9210010000"),
+		// GetArea, then copy the current left and right into the new rectangle.
+		hexBytes("ff92c00000008b10899424980000008b5008899424a00000008bce8b16ff9210010000"))
+	patches = append(patches, mapLegendSwatch,
+		instruction(0x3a07d4, "8d573d", "8d577a"),
+		instruction(0x3a080b, "8d44383d", "8d44387a"),
+		instruction(0x3a08f4, "8d4f18", "8d4f30"),
+		instruction(0x3a08fd, "c744243c16010000", "c744243c2c020000"),
+		instruction(0x3a090b, "0516010000", "052c020000"),
+		instruction(0x3a0922, "8d4c3818", "8d4c3830"))
 
-		// The graph window builds its plot rectangle in screen pixels.
-		// Leave room for the enlarged ticks, title, and line-chart legend.
-		var graphLegend instructionPatch
-		stub, graphLegend = appendStub(stub, stubRVA, 0x36dd4b,
-			hexBytes("83e81483ea6e"), hexBytes("83e82081ead4000000"))
-		patches = append(patches, graphLegend,
-			instruction(0x36d834, "83e814", "83e820"),
-			instruction(0x36d848, "c78424980000002d000000", "c784249800000046000000"),
-			instruction(0x36d853, "c784249c00000014000000", "c784249c00000020000000"),
-			instruction(0x36dd5f, "c78424a80000002d000000", "c78424a800000046000000"),
-			instruction(0x36dd6a, "c78424ac00000014000000", "c78424ac00000020000000"))
+	// The graph window builds its plot rectangle in screen pixels.
+	// Leave room for the enlarged ticks, title, and line-chart legend.
+	var graphLegend instructionPatch
+	stub, graphLegend = appendStub(stub, stubRVA, 0x36dd4b,
+		hexBytes("83e81483ea6e"), hexBytes("83e82081ead4000000"))
+	patches = append(patches, graphLegend,
+		instruction(0x36d834, "83e814", "83e820"),
+		instruction(0x36d848, "c78424980000002d000000", "c784249800000046000000"),
+		instruction(0x36d853, "c784249c00000014000000", "c784249c00000020000000"),
+		instruction(0x36dd5f, "c78424a80000002d000000", "c78424a800000046000000"),
+		instruction(0x36dd6a, "c78424ac00000014000000", "c78424ac00000020000000"))
 
-		// Both legend paths need the same gutter. Line and bar charts use
-		// direct-drawn swatches, while other charts create bitmap controls.
-		var graphLegendStart, graphSwatches, graphLabels instructionPatch
-		stub, graphLegendStart = appendStub(stub, stubRVA, 0x36e0f5,
-			hexBytes("83eb6a83f802"), hexBytes("81ebca00000083f802"))
-		stub, graphSwatches = appendStub(stub, stubRVA, 0x36e159,
-			hexBytes("8d4aa4518b4c24205183c294"),
-			hexBytes("8d8a44ffffff518b4c24205181c234ffffff"))
-		stub, graphLabels = appendStub(stub, stubRVA, 0x36e1f1,
-			hexBytes("8d8c24f800000083eb5a"), hexBytes("8d8c24f800000081ebba000000"))
-		patches = append(patches, graphLegendStart, graphSwatches, graphLabels)
+	// Both legend paths need the same gutter. Line and bar charts use
+	// direct-drawn swatches, while other charts create bitmap controls.
+	var graphLegendStart, graphSwatches, graphLabels instructionPatch
+	stub, graphLegendStart = appendStub(stub, stubRVA, 0x36e0f5,
+		hexBytes("83eb6a83f802"), hexBytes("81ebca00000083f802"))
+	stub, graphSwatches = appendStub(stub, stubRVA, 0x36e159,
+		hexBytes("8d4aa4518b4c24205183c294"),
+		hexBytes("8d8a44ffffff518b4c24205181c234ffffff"))
+	stub, graphLabels = appendStub(stub, stubRVA, 0x36e1f1,
+		hexBytes("8d8c24f800000083eb5a"), hexBytes("8d8c24f800000081ebba000000"))
+	patches = append(patches, graphLegendStart, graphSwatches, graphLabels)
 
-		// Draw a second scanline for data series, clamped to the top of
-		// the plot. The axes, grid, and legend have separate draw paths.
-		var graphSeries instructionPatch
-		stub, graphSeries = appendStub(stub, stubRVA, 0x5b60f4, hexBytes("ff9080000000"),
-			hexBytes("ff90800000008b86e40000003945cc7e03ff4dcc3945d47e03ff4dd4"+
-				"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
-		patches = append(patches, graphSeries)
+	// Draw a second scanline for data series, clamped to the top of
+	// the plot. The axes, grid, and legend have separate draw paths.
+	var graphSeries instructionPatch
+	stub, graphSeries = appendStub(stub, stubRVA, 0x5b60f4, hexBytes("ff9080000000"),
+		hexBytes("ff90800000008b86e40000003945cc7e03ff4dcc3945d47e03ff4dd4"+
+			"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
+	patches = append(patches, graphSeries)
 
+	if textureScale == 4 {
 		// Empty ledger sections share a dialog built in code. Keep the
 		// root, text pane, and frame at the same size for layout and input.
 		for _, site := range []int{0x37c19e, 0x37c1b0, 0x37c1d9, 0x37c2e0, 0x37c301} {
@@ -367,23 +374,25 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		stub, gauges = appendStub(stub, stubRVA, 0x3628c4,
 			hexBytes("897c241c895c2420"), hexBytes("8d143f8954241c8d141b89542420"))
 		patches = append(patches, gauges)
+	}
 
-		// The HTML control creates its vertical scrollbar at runtime. Resize
-		// the child rectangle and reserve matching space in the text viewport.
-		var bottom, left instructionPatch
-		stub, bottom = appendStub(stub, stubRVA, 0x4fa8b9,
-			hexBytes("508b068bce"), hexBytes("83f80873056a0458eb0383e804508b068bce"))
-		// SetArea takes edges, and the stock left edge depends on the child
-		// width from the previous layout. Use a fixed width across resizes.
-		stub, left = appendStub(stub, stubRVA, 0x4fa8c5,
-			hexBytes("8b036a008bcbff90a400000033db432bd88b068bce"),
-			hexBytes("6a04bbe4ffffff8b068bce"))
-		patches = append(patches, bottom, left,
-			instruction(0x4fbcbf, "c7868c01000016000000", "c7868c01000024000000"))
-		// The horizontal update must not overwrite the vertical range.
-		for _, site := range []int{0x4fa849, 0x4fa857, 0x4fa872} {
-			patches = append(patches, instruction(site, "8b8ea4010000", "8b8ea8010000"))
-		}
+	// The HTML control creates its vertical scrollbar at runtime. Resize
+	// the child rectangle and reserve matching space in the text viewport.
+	var bottom, left instructionPatch
+	stub, bottom = appendStub(stub, stubRVA, 0x4fa8b9,
+		hexBytes("508b068bce"), hexBytes("83f80873056a0458eb0383e804508b068bce"))
+	// SetArea takes edges, and the stock left edge depends on the child
+	// width from the previous layout. Use a fixed width across resizes.
+	stub, left = appendStub(stub, stubRVA, 0x4fa8c5,
+		hexBytes("8b036a008bcbff90a400000033db432bd88b068bce"),
+		hexBytes("6a04bbe4ffffff8b068bce"))
+	patches = append(patches, bottom, left,
+		instruction(0x4fbcbf, "c7868c01000016000000", "c7868c01000024000000"))
+	// The horizontal update must not overwrite the vertical range.
+	for _, site := range []int{0x4fa849, 0x4fa857, 0x4fa872} {
+		patches = append(patches, instruction(site, "8b8ea4010000", "8b8ea8010000"))
+	}
+	if textureScale == 4 {
 		stub, patches = appendDensityUIPatches(stub, patches, stubRVA)
 	}
 	if options.hdCursors {
@@ -481,16 +490,14 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		data[template.offset+offset] = template.size
 	}
 
-	if textureScale == 4 {
-		for i := 0; i < newsMarkerCount; i++ {
-			at := 0x6837f4 - i*0x2c
-			original := fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, catalogFrameGroup, newsMarkerFirst+i)
-			marker := data[at : at+len(original)]
-			if !bytes.Equal(marker, []byte(original)) {
-				return nil, fmt.Errorf("unexpected News marker HTML template at offset %#x", at)
-			}
-			copy(marker, fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, newsMarkerGroup, newsMarkerFirst+i))
+	for i := 0; i < newsMarkerCount; i++ {
+		at := 0x6837f4 - i*0x2c
+		original := fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, catalogFrameGroup, newsMarkerFirst+i)
+		marker := data[at : at+len(original)]
+		if !bytes.Equal(marker, []byte(original)) {
+			return nil, fmt.Errorf("unexpected News marker HTML template at offset %#x", at)
 		}
+		copy(marker, fmt.Sprintf(`<IMG SRC="sc4://HTML/%08x/%08X">`, newsMarkerGroup, newsMarkerFirst+i))
 	}
 
 	data, err := appendUISection(data, pe, text, stubRVA, stub)

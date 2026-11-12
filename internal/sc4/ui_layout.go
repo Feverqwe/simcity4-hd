@@ -80,12 +80,8 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 			line = strings.Replace(line, " vscrollbar=", " font=GenBodyLight vscrollbar=", 1)
 		}
 		if instance == 0x8a5ab1cd && strings.Contains(line, "clsid=GZWinTreeView ") {
-			rowHeight := "rowheight=28"
-			if textureScale == 4 {
-				rowHeight = "rowheight=36"
-			}
 			line = strings.NewReplacer("icongutter=3", "icongutter=6",
-				"rowheight=16", rowHeight, "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
+				"rowheight=16", "rowheight=36", "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
 		}
 		if instance == 0x4bc906b5 && strings.Contains(line, "image={46a006b0,14015585}") {
 			// Align the Environment, Traffic and Education outlines with
@@ -96,18 +92,22 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				"area=(194,111,295,122)", "area=(195,111,296,122)",
 			).Replace(line)
 		}
-		driveMinimize := textureScale == 4 && w.group == 0xe74a40be &&
+		driveMinimize := w.group == 0xe74a40be &&
 			strings.Contains(line, " id=0x2c16c9cb ") && strings.Contains(line, "image={46a006b0,53244588}")
 		if driveMinimize {
 			// The Minimize atlas has 21×19 cells, but the stock button is
-			// only 18×16. Give the full frame room at the same anchor.
+			// only 18×16. Fit the whole frame inside the HUD.
 			area := driveButtonArea.FindStringSubmatch(line)
+			root := driveButtonArea.FindStringSubmatch(string(legacyRoot.Find(data)))
 			if len(area) != 5 || layoutNumber(area[3])-layoutNumber(area[1]) != 18 ||
-				layoutNumber(area[4])-layoutNumber(area[2]) != 16 {
+				layoutNumber(area[4])-layoutNumber(area[2]) != 16 || len(root) != 5 {
 				return fmt.Errorf("%s: unexpected Free Drive Minimize geometry", layoutID(instance))
 			}
-			line = strings.Replace(line, area[0], fmt.Sprintf("area=(%s,%s,%d,%d)",
-				area[1], area[2], layoutNumber(area[1])+21, layoutNumber(area[2])+19), 1)
+			left := layoutNumber(area[1])
+			height := layoutNumber(root[4]) - layoutNumber(root[2])
+			top := min(layoutNumber(area[2]), height-19)
+			line = strings.Replace(line, area[0], fmt.Sprintf("area=(%d,%d,%d,%d)",
+				left, top, left+21, top+19), 1)
 		}
 		frames := 1
 		if strings.Contains(line, "clsid=GZWinBtn ") {
@@ -139,7 +139,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				return reference
 			}
 			source := resourceID{uiImage, uint32(group), uint32(id)}
-			if textureScale == 4 && (instance == 0x898897de || instance == 0x2bc90671) &&
+			if (instance == 0x898897de || instance == 0x2bc90671) &&
 				strings.Contains(line, " id=0x8a517556 ") &&
 				source == (resourceID{uiImage, catalogFrameGroup, mayorRatingImage}) {
 				// The city replaces this bitmap at runtime. Both images
@@ -194,7 +194,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				return font
 			}
 			name := strings.ToLower(value)
-			if textureScale == 4 && name == "legend" &&
+			if name == "legend" &&
 				(instance == 0xea287193 || instance == 0x2bc9060f || instance == 0x0b72f276) {
 				// The runtime legend font already scales to fit the map column.
 				return font

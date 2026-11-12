@@ -106,78 +106,65 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	if art.scale == 4 {
-		markers, err := buildNewsMarkers(stock, art)
+	markers, err := buildNewsMarkers(stock, art)
+	if err != nil {
+		return nil, err
+	}
+	entries = append(entries, markers...)
+	for _, instance := range []uint32{mayorRatingImage, regionRatingImage} {
+		entry, err := buildRatingImage(stock, art, instance)
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, markers...)
-		for _, instance := range []uint32{mayorRatingImage, regionRatingImage} {
-			entry, err := buildRatingImage(stock, art, instance)
+		entries = append(entries, entry)
+	}
+	// Runtime budget and playlist controls use atlases at screen density.
+	for _, atlas := range []struct {
+		source, target, group uint32
+		frames                int
+	}{
+		{budgetSliderImage, budgetSliderImage, budgetSliderGroup, 4},
+		{budgetCheckboxImage, budgetCheckboxImage, budgetRowArtGroup, 8},
+		{playlistCheckboxImage, playlistCheckboxImage, budgetRowArtGroup, 8},
+		{budgetDetailsImage, budgetDetailsImage, budgetRowArtGroup, 4},
+		{budgetCloseImage, budgetCloseHD, budgetRowArtGroup, 4},
+	} {
+		if art.scale != 4 && atlas.source != playlistCheckboxImage {
+			continue
+		}
+		source := resourceID{uiImage, catalogFrameGroup, atlas.source}
+		target := resourceID{uiImage, atlas.group, atlas.target}
+		if _, exists := stock.index[target]; exists {
+			return nil, fmt.Errorf("runtime image key collision: %s", target)
+		}
+		original, err := stock.read(source)
+		if err != nil {
+			return nil, err
+		}
+		data, err := art.upscale(layoutAtlas{source: source, frames: atlas.frames, project: true}, original)
+		if err != nil {
+			return nil, fmt.Errorf("runtime image %s: %w", source, err)
+		}
+		if atlas.source == playlistCheckboxImage {
+			imageData, err := decodeRGBA(data)
 			if err != nil {
 				return nil, err
 			}
-			entries = append(entries, entry)
-		}
-		// Runtime budget and playlist controls use atlases at screen density.
-		for _, atlas := range []struct {
-			source, target, group uint32
-			frames                int
-		}{
-			{budgetSliderImage, budgetSliderImage, budgetSliderGroup, 4},
-			{budgetCheckboxImage, budgetCheckboxImage, budgetRowArtGroup, 8},
-			{playlistCheckboxImage, playlistCheckboxImage, budgetRowArtGroup, 8},
-			{budgetDetailsImage, budgetDetailsImage, budgetRowArtGroup, 4},
-			{budgetCloseImage, budgetCloseHD, budgetRowArtGroup, 4},
-		} {
-			source := resourceID{uiImage, catalogFrameGroup, atlas.source}
-			target := resourceID{uiImage, atlas.group, atlas.target}
-			if _, exists := stock.index[target]; exists {
-				return nil, fmt.Errorf("runtime image key collision: %s", target)
+			if imageData.Bounds() != image.Rect(0, 0, 256, 32) {
+				return nil, fmt.Errorf("unexpected playlist atlas bounds: %s", imageData.Bounds())
 			}
-			original, err := stock.read(source)
+			// The playlist shows 28-pixel rows. Trim two pixels of
+			// padding above and below each 32-pixel checkbox cell.
+			cropped := image.NewNRGBA(image.Rect(0, 0, 256, 28))
+			draw.Draw(cropped, cropped.Bounds(), imageData, image.Pt(0, 2), draw.Src)
+			data, err = encodeRGBA(cropped)
 			if err != nil {
 				return nil, err
 			}
-			data, err := art.upscale(layoutAtlas{source: source, frames: atlas.frames, project: true}, original)
-			if err != nil {
-				return nil, fmt.Errorf("runtime image %s: %w", source, err)
-			}
-			if atlas.source == playlistCheckboxImage {
-				imageData, err := decodeRGBA(data)
-				if err != nil {
-					return nil, err
-				}
-				if imageData.Bounds() != image.Rect(0, 0, 256, 32) {
-					return nil, fmt.Errorf("unexpected playlist atlas bounds: %s", imageData.Bounds())
-				}
-				// The playlist shows 28-pixel rows. Trim two pixels of
-				// padding above and below each 32-pixel checkbox cell.
-				cropped := image.NewNRGBA(image.Rect(0, 0, 256, 28))
-				draw.Draw(cropped, cropped.Bounds(), imageData, image.Pt(0, 2), draw.Src)
-				data, err = encodeRGBA(cropped)
-				if err != nil {
-					return nil, err
-				}
-			}
-			entries = append(entries, resource{target, data})
 		}
-		for instance := uint32(0x1441624a); instance <= 0x1441624c; instance++ {
-			source := resourceID{uiImage, catalogFrameGroup, instance}
-			target := resourceID{uiImage, importIconGroup, instance}
-			if _, exists := stock.index[target]; exists {
-				return nil, fmt.Errorf("import icon key collision: %s", target)
-			}
-			original, err := stock.read(source)
-			if err != nil {
-				return nil, err
-			}
-			data, err := art.upscale(layoutAtlas{source: source, frames: 1, project: true}, original)
-			if err != nil {
-				return nil, fmt.Errorf("import icon %s: %w", source, err)
-			}
-			entries = append(entries, resource{target, data})
-		}
+		entries = append(entries, resource{target, data})
+	}
+	if art.scale == 4 {
 		config, err = addLayoutFontAliases(config, []fontAlias{
 			{"BdgtPopupHeader", "HDBdgtPopupHeader"},
 			{"BdgtPopupBody", "HDBdgtPopupBody"},
@@ -191,6 +178,22 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	for instance := uint32(0x1441624a); instance <= 0x1441624c; instance++ {
+		source := resourceID{uiImage, catalogFrameGroup, instance}
+		target := resourceID{uiImage, importIconGroup, instance}
+		if _, exists := stock.index[target]; exists {
+			return nil, fmt.Errorf("import icon key collision: %s", target)
+		}
+		original, err := stock.read(source)
+		if err != nil {
+			return nil, err
+		}
+		data, err := art.upscale(layoutAtlas{source: source, frames: 1, project: true}, original)
+		if err != nil {
+			return nil, fmt.Errorf("import icon %s: %w", source, err)
+		}
+		entries = append(entries, resource{target, data})
 	}
 	entries = append(entries, resource{uiFontID, []byte(config)})
 	restoreID := resourceID{uiImage, catalogFrameGroup, 0x53244588}
@@ -578,15 +581,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 			return fmt.Errorf("build cursors: %w", err)
 		}
 	}
-	if *textureScale == 2 {
-		if err := closeWorker(); err != nil {
-			return err
-		}
-		config.scale = 2
-	}
 	suffix := fmt.Sprintf("x%d", *textureScale)
 	progress.report("Portraits")
-	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-"+suffix), *textureScale, infer, progress)
+	// The picker always consumes screen-density portraits. Both packages
+	// can use the same projected artwork and inference cache.
+	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-x4"), 4, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build My Sims portraits: %w", err)
 	}
