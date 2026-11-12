@@ -1,12 +1,12 @@
 package sc4
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -162,7 +162,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	game := flags.String("game", "", "original Steam game directory")
 	cache := flags.String("cache", filepath.Join(data, "Cache"), "texture cache directory")
 	ui := flags.Bool("ui", true, "upscale interface textures and apply UI fixes")
-	textureScale := flags.Int("texture-scale", 4, "texture and cursor scale (2 or 4)")
+	textureScale := flags.Int("texture-scale", 2, "texture and cursor scale (2 or 4)")
 	world := flags.Bool("world", true, "upscale world textures")
 	network := flags.Bool("network", true, "upscale roads and rail")
 	terrain := flags.Bool("terrain", true, "upscale terrain")
@@ -221,11 +221,27 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// The window closes this pipe to pause, including when it exits unexpectedly.
+		retry := make(chan struct{}, 1)
+		// EOF pauses the operation, including when the setup window exits unexpectedly.
 		go func() {
-			_, _ = io.Copy(io.Discard, os.Stdin)
-			cancel()
+			defer cancel()
+			scanner := bufio.NewScanner(os.Stdin)
+			for scanner.Scan() {
+				if scanner.Text() == "retry" {
+					select {
+					case retry <- struct{}{}:
+					default:
+					}
+				}
+			}
 		}()
+		waitForRetry := func() error {
+			select {
+			case <-retry:
+			case <-ctx.Done():
+			}
+			return ctx.Err()
+		}
 		options := setupOptions{
 			ui: *ui, skipIntro: *skipIntro, drawStats: *drawStats,
 			width: width, height: height,
@@ -238,10 +254,10 @@ func installerCommand(args []string, emit func(installEvent)) error {
 			},
 		}
 		if args[0] == "configure" {
-			if err := configureHD(ctx, *game, *cache, options, emit); err != nil {
+			if err := configureHD(ctx, *game, *cache, options, emit, waitForRetry); err != nil {
 				return err
 			}
-		} else if err := installHD(ctx, *game, *cache, options, emit); err != nil {
+		} else if err := installHD(ctx, *game, *cache, options, emit, waitForRetry); err != nil {
 			return err
 		}
 		return reportInstalled(*game, emit)
@@ -270,7 +286,7 @@ func installLock(data string) (func(), error) {
 	return func() { syscall.CloseHandle(handle) }, nil
 }
 
-func installHD(ctx context.Context, game, cache string, options setupOptions, emit func(installEvent)) error {
+func installHD(ctx context.Context, game, cache string, options setupOptions, emit func(installEvent), waitForRetry func() error) error {
 	emit(installEvent{Type: "step", Phase: 1, Text: "Checking the game installation and cache"})
 	fmt.Fprintf(os.Stderr, "Game: %q; cache: %q; resolution: %dx%d\n", game, cache, options.width, options.height)
 	if !filepath.IsAbs(game) {
@@ -347,7 +363,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 	}()
 	ui, world := filepath.Join(work, "UI"), filepath.Join(work, "World")
 	phase := 1
-	deps := setupDependencies{ctx: ctx, dir: dependencyDir, emit: emit}
+	deps := setupDependencies{ctx: ctx, dir: dependencyDir, emit: emit, waitForRetry: waitForRetry}
 	progress := installerBuildProgress(&deps, &phase)
 	run := func() error {
 		if err := ctx.Err(); err != nil {

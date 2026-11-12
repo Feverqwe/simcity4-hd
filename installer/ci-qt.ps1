@@ -11,8 +11,8 @@ $repository = 'online/qtsdkrepository/windows_x86/desktop'
 $archives = @(
     @{
         Name = 'qtbase.7z'
-        Path = "$repository/qt6_683/qt6_683/qt.qt6.683.win64_mingw/6.8.3-0-202503201308qtbase-Windows-Windows_10_22H2-Mingw-Windows-Windows_10_22H2-X86_64.7z"
-        SHA = 'a2cd09053e907b161d84696ec5f1c316cfc089482c5b04de9141b949fa19acd1'
+        Path = "$repository/qt6_6120/qt6_6120_mingw/qt.qt6.6120.win64_mingw/6.12.0-0-202609280346qtbase-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z"
+        SHA = '3356346505113242a4f7c0b09ba46188424ee7938232166655f794c28a3477fc'
     },
     @{
         Name = 'mingw.7z'

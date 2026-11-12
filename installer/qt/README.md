@@ -1,6 +1,6 @@
 # Reusable Qt setup window
 
-Build this CMake project with Qt 6 Widgets. Launch `Setup-UI` with two
+Build this CMake project with a C++23 compiler and Qt 6 Widgets. Launch `Setup-UI` with two
 arguments: the path to a backend executable and the path to a JSON product
 manifest. The backend can be implemented in Go or any language that can
 communicate over standard streams. See [the SimCity manifest](../setup.json)
@@ -19,7 +19,9 @@ For a dropdown, provide a `values` array of string `value` and `label`
 pairs and a string `default`. Set `artwork` to an optional image path relative to the
 manifest to show a branded header. The optional `displayResolution`
 object adds a display mode picker with a flag `id` and a `fallback` in
-`WIDTHxHEIGHT` format. The optional `icon` path sets the window icon.
+`WIDTHxHEIGHT` format. The optional `icon` path sets the window icon. Set `completionUrl` and
+`completionAction` to offer a button that opens a URL after successful
+installation or configuration.
 
 The window invokes the backend with `inspect` at startup and `install` on
 request. Set `backendArgs` to prefix those commands (for example,
@@ -39,6 +41,7 @@ object per line on stdout and send diagnostics to stderr.
 | `count` | `value` counts units processed in the current step. An optional positive `total` sets the progress bar and displays both counts. |
 | `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, include `settings` with an `options` object of booleans keyed by manifest option ID. Optional `choices` supplies dropdown values by ID, and `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
+| `retry-resource` | `text` describes a recoverable download failure. Wait for a line containing `retry` on stdin to retry the resource in the current operation. |
 | `error` | `text` describes the problem; optional `field` identifies a path the user can correct. |
 | `stopped` | Installation paused and may be retried. |
 

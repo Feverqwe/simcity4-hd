@@ -1,4 +1,5 @@
 #include <QtWidgets>
+#include <QDesktopServices>
 #include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -320,6 +321,16 @@ public:
         closeInstalled->hide();
         closeInstalled->setAutoDefault(false);
         connect(closeInstalled, &QPushButton::clicked, this, [this] { close(); });
+        const QUrl completionUrl(config.value("completionUrl").toString());
+        play = new QPushButton(config.value("completionAction").toString(tr("Open")));
+        actions->addButton(play, QDialogButtonBox::ActionRole);
+        play->hide();
+        play->setAutoDefault(false);
+        connect(play, &QPushButton::clicked, this, [this, completionUrl] {
+            if (!QDesktopServices::openUrl(completionUrl))
+                QMessageBox::warning(this, tr("Could not launch"), tr("Could not open %1.")
+                    .arg(config.value("product").toString()));
+        });
         pause = new QPushButton(tr("Pause"));
         pause->hide();
         actions->addButton(pause, QDialogButtonBox::RejectRole);
@@ -563,6 +574,7 @@ private:
         status->setText(tr("Checking the selected folder…"));
         primary->setEnabled(false);
         closeInstalled->hide();
+        play->hide();
         removeInstalled->hide();
         startBackend("inspect");
     }
@@ -758,6 +770,8 @@ private:
             completed = true;
             appendDetails(tr("The mod was removed.").toUtf8() + '\n');
             status->setText(tr("The mod was removed."));
+        } else if (type == "retry-resource" && running && !stopping) {
+            askResourceRetry(text);
         } else if (type == "error") {
             showError(text, event.value("field").toString());
         } else if (type == "stopped") {
@@ -781,6 +795,26 @@ private:
         cursor.movePosition(QTextCursor::End);
         cursor.insertText(QString::fromUtf8(bytes).replace('\r', '\n'));
         scroll->setValue(follow ? scroll->maximum() : previous);
+    }
+
+    void askResourceRetry(const QString &message) {
+        appendDetails(message.toUtf8() + '\n');
+        bar->hide();
+        auto *alert = new QMessageBox(QMessageBox::Warning, tr("Download failed"), message,
+            QMessageBox::Retry | QMessageBox::Cancel, this);
+        alert->setTextFormat(Qt::PlainText);
+        alert->setAttribute(Qt::WA_DeleteOnClose);
+        resourceRetry = alert;
+        connect(alert, &QMessageBox::finished, this, [this](int answer) {
+            resourceRetry.clear();
+            if (!running || stopping)
+                return;
+            if (answer == QMessageBox::Retry)
+                process.write("retry\n");
+            else
+                stop();
+        });
+        alert->open();
     }
 
     void showError(const QString &message, const QString &fieldId = {}) {
@@ -847,6 +881,8 @@ private:
         inspecting = false;
         running = false;
         stopping = false;
+        if (resourceRetry)
+            resourceRetry->close();
         if (inspectAgain) {
             inspectSelection();
             return;
@@ -855,6 +891,7 @@ private:
         pause->hide();
         primary->show();
         primary->setEnabled(true);
+        play->setVisible(completed && installed && !config.value("completionUrl").toString().isEmpty());
         if (completed) {
             counter->hide();
             advanced->setChecked(false);
@@ -908,6 +945,7 @@ private:
     QHash<QString, QString> inspectedPaths, installedPaths;
     QJsonObject config;
     QProcess process;
+    QPointer<QMessageBox> resourceRetry;
     QByteArray pending, diagnostics;
     int userHeight = 0;
     bool fitPending = false;
@@ -925,7 +963,7 @@ private:
     QList<Choice> choices;
     QString resolutionFlag;
     QComboBox *resolution = nullptr;
-    QPushButton *primary, *pause, *closeInstalled, *removeInstalled;
+    QPushButton *primary, *pause, *closeInstalled, *removeInstalled, *play;
 };
 
 } // namespace

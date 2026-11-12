@@ -25,9 +25,9 @@
     {
       "id": "texture-scale",
       "label": "Texture scale",
-      "default": "4",
+      "default": "2",
       "values": [
-        { "value": "2", "label": "×2" },
+        { "value": "2", "label": "×2 (downscaled from ×4)" },
         { "value": "4", "label": "×4" }
       ]
     },
@@ -94,6 +94,8 @@
   "pausingText": "Pausing… Completed textures will be kept.",
   "pausedText": "Resume whenever you’re ready. Setup will reuse the textures already saved.",
   "installedText": "SimCity 4 UHD is installed. Close the game before changing its settings. To play, open SimCity 4 Deluxe in Steam.",
+  "completionUrl": "steam://run/24780",
+  "completionAction": "Play",
   "backendArgs": [
     "setup"
   ],

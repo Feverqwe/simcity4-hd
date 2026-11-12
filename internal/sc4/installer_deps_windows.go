@@ -32,6 +32,7 @@ type setupDependencies struct {
 	ctx             context.Context
 	dir             string
 	emit            func(installEvent)
+	waitForRetry    func() error
 	python, weights string
 }
 
@@ -118,12 +119,15 @@ func (d *setupDependencies) preparePython(phase int) (string, error) {
 				"--only-binary=:all:", "--cache-dir", filepath.Join(d.dir, "pip-cache"), "--index-url", index}
 			return d.runPython(python, temp, append(args, packages...)...)
 		}
-		d.step(phase, "Installing the NVIDIA upscale tools (several GB)")
-		if err := pip("https://download.pytorch.org/whl/cu128", "torch==2.11.0+cu128", "torchvision==0.26.0+cu128"); err != nil {
-			return "", fmt.Errorf("Could not download or install PyTorch. Check your connection and available disk space: %w", err)
+		if err := d.retryResource(phase, "Installing the NVIDIA upscale tools (several GB)", func() error {
+			return pip("https://download.pytorch.org/whl/cu128", "torch==2.11.0+cu128", "torchvision==0.26.0+cu128")
+		}); err != nil {
+			return "", err
 		}
-		if err := pip("https://pypi.org/simple", "numpy==2.2.6", "Pillow==11.3.0", "safetensors==0.5.3", "spandrel==0.4.2"); err != nil {
-			return "", fmt.Errorf("Could not install the upscale tools: %w", err)
+		if err := d.retryResource(phase, "Installing the Python upscale dependencies", func() error {
+			return pip("https://pypi.org/simple", "numpy==2.2.6", "Pillow==11.3.0", "safetensors==0.5.3", "spandrel==0.4.2")
+		}); err != nil {
+			return "", err
 		}
 		if err := os.WriteFile(ready, nil, 0600); err != nil {
 			return "", err
@@ -203,6 +207,30 @@ func checkSHA(ctx context.Context, file, want string) error {
 	return nil
 }
 
+func (d *setupDependencies) retryResource(phase int, label string, attempt func() error) error {
+	for {
+		if err := d.ctx.Err(); err != nil {
+			return err
+		}
+		d.step(phase, label)
+		err := attempt()
+		if err == nil {
+			return nil
+		}
+		if d.ctx.Err() != nil {
+			return d.ctx.Err()
+		}
+		err = fmt.Errorf("%s failed: %w", label, err)
+		if d.waitForRetry == nil {
+			return err
+		}
+		d.emit(installEvent{Type: "retry-resource", Phase: phase, Text: err.Error()})
+		if err := d.waitForRetry(); err != nil {
+			return err
+		}
+	}
+}
+
 func (d *setupDependencies) download(phase int, label, name, url, digest string, limit int64) (string, error) {
 	output := filepath.Join(d.dir, name)
 	if checkSHA(d.ctx, output, digest) == nil {
@@ -215,21 +243,30 @@ func (d *setupDependencies) download(phase int, label, name, url, digest string,
 	if err := removeIfPresent(output); err != nil {
 		return "", err
 	}
-	d.step(phase, label)
-	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, url, nil)
+	err := d.retryResource(phase, label, func() error {
+		return d.downloadResource(phase, output, url, digest, limit)
+	})
 	if err != nil {
 		return "", err
+	}
+	return output, nil
+}
+
+func (d *setupDependencies) downloadResource(phase int, output, url, digest string, limit int64) error {
+	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
 	}
 	client := http.Client{Timeout: 2 * time.Hour}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("%s failed: %w", label, err)
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || resp.ContentLength > limit {
-		return "", fmt.Errorf("%s failed (HTTP %s or unexpected file size)", label, resp.Status)
+		return fmt.Errorf("HTTP %s or unexpected file size", resp.Status)
 	}
-	err = publishFile(output, func(w io.Writer) error {
+	return publishFile(output, func(w io.Writer) error {
 		h := sha256.New()
 		reader := io.LimitReader(resp.Body, limit+1)
 		buf := make([]byte, 128<<10)
@@ -260,14 +297,10 @@ func (d *setupDependencies) download(phase int, label, name, url, digest string,
 			}
 		}
 		if fmt.Sprintf("%x", h.Sum(nil)) != digest {
-			return fmt.Errorf("unexpected SHA-256 for %s", name)
+			return fmt.Errorf("unexpected SHA-256 for %s", filepath.Base(output))
 		}
 		return nil
 	})
-	if err != nil {
-		return "", fmt.Errorf("%s failed: %w", label, err)
-	}
-	return output, nil
 }
 
 func extractOne(ctx context.Context, archive, name, output string, max uint64, want string) error {

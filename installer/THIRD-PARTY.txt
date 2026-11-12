@@ -1,9 +1,9 @@
 SimCity 4 UHD Setup uses Qt 6 Widgets, dynamically linked, under LGPL v3.
 To use compatible replacement libraries, run the setup executable with
 `--extract-to DIRECTORY` (a new folder), replace the Qt files there, and run
-setup with `--runtime DIRECTORY`. Qt 6.8.3 source,
+setup with `--runtime DIRECTORY`. Qt 6.12.0 source,
 including license notices, is available at:
-https://download.qt.io/archive/qt/6.8/6.8.3/submodules/
+https://download.qt.io/archive/qt/6.12/6.12.0/submodules/
 https://www.gnu.org/licenses/lgpl-3.0.html
 https://www.gnu.org/licenses/gpl-3.0.html
 

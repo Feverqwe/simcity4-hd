@@ -422,7 +422,7 @@ func applySetupReplacements(work string, replacements []setupReplacement, keepWo
 	return nil
 }
 
-func configureHD(ctx context.Context, game, cache string, desired setupOptions, emit func(installEvent)) (result error) {
+func configureHD(ctx context.Context, game, cache string, desired setupOptions, emit func(installEvent), waitForRetry func() error) (result error) {
 	applying := false
 	defer func() {
 		if !applying && result != nil && ctx.Err() != nil {
@@ -596,7 +596,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	}
 
 	phase := 1
-	deps := setupDependencies{ctx: ctx, dir: filepath.Join(cache, "SetupDependencies"), emit: emit}
+	deps := setupDependencies{ctx: ctx, dir: filepath.Join(cache, "SetupDependencies"), emit: emit, waitForRetry: waitForRetry}
 	progress := installerBuildProgress(&deps, &phase)
 	uiStage, worldStage := filepath.Join(work, "UI"), filepath.Join(work, "World")
 	var generated []string
