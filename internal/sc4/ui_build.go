@@ -476,6 +476,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	flags := flag.NewFlagSet("ui", flag.ContinueOnError)
 	textureScale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
 	hdCursors := flags.Bool("hd-cursors", false, "build experimental HD game cursors")
+	cursorScale := flags.Int("cursor-scale", 2, "HD cursor size (2 or 4)")
 	regionMap := flags.Bool("region-map-2x", false, "double the region map")
 	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
 	readInferenceConfig := inferenceFlags(flags)
@@ -491,6 +492,9 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	if *textureScale != 2 && *textureScale != 4 {
 		return errors.New("texture scale must be 2 or 4")
+	}
+	if *cursorScale != 2 && *cursorScale != 4 {
+		return errors.New("cursor scale must be 2 or 4")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	// Validate the executable fingerprint before doing potentially lengthy inference.
@@ -576,7 +580,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	var cursors []resource
 	if *hdCursors {
-		cursors, err = cursorEntries(stock, art)
+		cursors, err = cursorEntries(stock, art, *cursorScale)
 		if err != nil {
 			return fmt.Errorf("build cursors: %w", err)
 		}
@@ -614,7 +618,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		packages = append(packages, uiPackage{"credits-text.dat", credits})
 	}
 	if len(cursors) != 0 {
-		packages = append(packages, uiPackage{"cursors-hd.dat", cursors})
+		name := "cursors-hd.dat"
+		if *cursorScale == 4 {
+			name = "cursors-hd-x4.dat"
+		}
+		packages = append(packages, uiPackage{name, cursors})
 	}
 	if err := ctx.Err(); err != nil {
 		return err

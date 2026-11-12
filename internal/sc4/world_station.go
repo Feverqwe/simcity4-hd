@@ -99,8 +99,12 @@ func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress
 				tail+16 != e.end || !bytes.Equal(original[tail:e.end], make([]byte, 16)) {
 				return nil, nil, fmt.Errorf("%s: unexpected station attachments or metadata", textureKey)
 			}
-			hd, err := rebuildBCTexture(original, 4, false, func(source *image.NRGBA) (*image.NRGBA, error) {
-				return stationArt(art, dayID, original, source)
+			hd, err := rebuildBCTexture(original, art.scale, false, func(source *image.NRGBA) (*image.NRGBA, error) {
+				pixels, err := stationArt(art, dayID, original, source)
+				if err == nil && art.scale == 2 {
+					pixels = halfLanczosRGB(pixels)
+				}
+				return pixels, err
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", textureKey, err)
@@ -110,8 +114,10 @@ func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress
 			if err != nil {
 				return nil, nil, err
 			}
-			cache := filepath.Join(art.cache, "fire-station-night", hatCheckpointSHA, "x4")
-			hdNight, err := art.texture(cache, originalNight, 4, false)
+			cache := func(scale int) string {
+				return filepath.Join(art.cache, "fire-station-night", hatCheckpointSHA, fmt.Sprintf("x%d", scale))
+			}
+			hdNight, err := art.texture(cache, originalNight, false)
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", nightKey, err)
 			}

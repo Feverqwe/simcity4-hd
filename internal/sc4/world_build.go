@@ -14,8 +14,6 @@ type worldSelection struct {
 	network, terrain, models bool
 }
 
-const modelOverridesPackage = "model-overrides-x4.dat"
-
 func (s worldSelection) any() bool { return s.network || s.terrain || s.models }
 
 func runBuildWorld(args []string) error {
@@ -24,6 +22,7 @@ func runBuildWorld(args []string) error {
 
 func buildWorldWithProgress(ctx context.Context, args []string, progress buildProgress, selection worldSelection) (result error) {
 	flags := flag.NewFlagSet("world", flag.ContinueOnError)
+	scale := flags.Int("texture-scale", 4, "world texture scale (2 or 4)")
 	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -35,6 +34,10 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 	if flags.NArg() != 3 {
 		return errors.New("usage: simcity4-uhd world [OPTIONS] GAME_DIR CACHE NEW_OUTPUT_DIR")
 	}
+	if *scale != 2 && *scale != 4 {
+		return errors.New("world texture scale must be 2 or 4")
+	}
+	config.scale = *scale
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
 		if err != nil {
@@ -94,17 +97,17 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 		if err != nil {
 			return fmt.Errorf("build network: %w", err)
 		}
-		if err := write("network-x4.dat", network); err != nil {
+		if err := write(fmt.Sprintf("network-x%d.dat", *scale), network); err != nil {
 			return err
 		}
 	}
 	if selection.terrain {
 		progress.report("Terrain")
-		indexed, err := indexedTerrainEntries(game, progress)
+		indexed, err := indexedTerrainEntries(game, *scale, progress)
 		if err != nil {
 			return err
 		}
-		if err := write("terrain-indexed-x4.dat", indexed); err != nil {
+		if err := write(fmt.Sprintf("terrain-indexed-x%d.dat", *scale), indexed); err != nil {
 			return err
 		}
 	}
@@ -123,7 +126,7 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 		return err
 	}
 	if selection.models {
-		config.scale, config.tile, config.overlap = 4, 48, 12
+		config.tile, config.overlap = 48, 12
 		art, closeWorker = worldInference(ctx, cache, config)
 		progress.report("Preparing model material overrides")
 		day, night, err := stationEntries(stock, art, progress)
@@ -133,7 +136,7 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 		if err := closeWorker(); err != nil {
 			return err
 		}
-		if err := write(modelOverridesPackage, append(day, night...)); err != nil {
+		if err := write(fmt.Sprintf("model-overrides-x%d.dat", *scale), append(day, night...)); err != nil {
 			return err
 		}
 	}

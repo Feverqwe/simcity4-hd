@@ -249,7 +249,30 @@ public:
                     caption->setFont(f);
                     rows->addWidget(caption);
                 }
-                auto *box = new QCheckBox(info.value("label").toString());
+                const auto label = info.value("label").toString();
+                const auto values = info.value("values").toArray();
+                if (!values.isEmpty()) {
+                    auto *picker = new QComboBox;
+                    for (const auto &value : values) {
+                        const auto item = value.toObject();
+                        picker->addItem(item.value("label").toString(), item.value("value").toString());
+                    }
+                    const int defaultIndex = qMax(0, picker->findData(info.value("default").toString()));
+                    picker->setCurrentIndex(defaultIndex);
+                    picker->setAccessibleName(label);
+                    auto *row = new QHBoxLayout;
+                    if (!required.isEmpty())
+                        row->addSpacing(style()->pixelMetric(QStyle::PM_IndicatorWidth));
+                    auto *caption = new QLabel(label);
+                    caption->setBuddy(picker);
+                    row->addWidget(caption);
+                    row->addWidget(picker);
+                    row->addStretch();
+                    rows->addLayout(row);
+                    choices.append({id, required, picker, caption, defaultIndex});
+                    continue;
+                }
+                auto *box = new QCheckBox(label);
                 const bool defaultChecked = info.value("default").toBool();
                 box->setChecked(defaultChecked);
                 if (required.isEmpty()) {
@@ -437,6 +460,13 @@ private:
         bool defaultChecked;
     };
 
+    struct Choice {
+        QString id, required;
+        QComboBox *picker;
+        QLabel *caption;
+        int defaultIndex;
+    };
+
     void updateDependencies() {
         // Parents precede their children in the manifest.
         QHash<QString, bool> active;
@@ -444,6 +474,11 @@ private:
             const bool enabled = option.required.isEmpty() || active.value(option.required);
             option.box->setEnabled(enabled);
             active.insert(option.id, enabled && option.box->isChecked());
+        }
+        for (const auto &choice : choices) {
+            const bool enabled = choice.required.isEmpty() || active.value(choice.required);
+            choice.picker->setEnabled(enabled);
+            choice.caption->setEnabled(enabled);
         }
     }
 
@@ -512,6 +547,8 @@ private:
         clearFieldError();
         for (const auto &option : checkboxes)
             option.box->setChecked(option.defaultChecked);
+        for (const auto &choice : choices)
+            choice.picker->setCurrentIndex(choice.defaultIndex);
         if (resolution)
             resolution->setCurrentIndex(0);
         // Reset paths loaded from a previous installation, while keeping user edits.
@@ -553,6 +590,9 @@ private:
                 args << "-" + resolutionFlag << resolution->currentData().toString();
             for (const auto &option : checkboxes)
                 args << "-" + option.id + "=" + (option.box->isEnabled() && option.box->isChecked() ? "true" : "false");
+            for (const auto &choice : choices)
+                if (choice.picker->isEnabled())
+                    args << "-" + choice.id + "=" + choice.picker->currentData().toString();
         }
         return args;
     }
@@ -693,6 +733,12 @@ private:
                 for (const auto &option : checkboxes)
                     if (values.contains(option.id))
                         option.box->setChecked(values.value(option.id).toBool());
+                const auto selections = settings.value("choices").toObject();
+                for (const auto &choice : choices) {
+                    const int index = choice.picker->findData(selections.value(choice.id).toString());
+                    if (index >= 0)
+                        choice.picker->setCurrentIndex(index);
+                }
                 const auto size = settings.value("resolution").toString();
                 if (resolution && !size.isEmpty()) {
                     int index = resolution->findData(size);
@@ -876,6 +922,7 @@ private:
     QPlainTextEdit *details;
     QList<Field> fields;
     QList<Option> checkboxes;
+    QList<Choice> choices;
     QString resolutionFlag;
     QComboBox *resolution = nullptr;
     QPushButton *primary, *pause, *closeInstalled, *removeInstalled;

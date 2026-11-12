@@ -105,6 +105,7 @@ type setupOptions struct {
 	interfaceOptions         uiExecutableOptions
 	world                    worldSelection
 	width, height            int
+	textureScale             int
 }
 
 type setupInputError struct {
@@ -161,6 +162,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	game := flags.String("game", "", "original Steam game directory")
 	cache := flags.String("cache", filepath.Join(data, "Cache"), "texture cache directory")
 	ui := flags.Bool("ui", true, "upscale interface textures and apply UI fixes")
+	textureScale := flags.Int("texture-scale", 4, "texture and cursor scale (2 or 4)")
 	world := flags.Bool("world", true, "upscale world textures")
 	network := flags.Bool("network", true, "upscale roads and rail")
 	terrain := flags.Bool("terrain", true, "upscale terrain")
@@ -202,6 +204,9 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		emit(installEvent{Type: "removed"})
 		return nil
 	case "install", "configure":
+		if *textureScale != 2 && *textureScale != 4 {
+			return errors.New("Choose a texture scale of 2 or 4.")
+		}
 		if !filepath.IsAbs(*cache) {
 			return setupInputError{"cache", "Use an absolute path for the cache."}
 		}
@@ -224,6 +229,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		options := setupOptions{
 			ui: *ui, skipIntro: *skipIntro, drawStats: *drawStats,
 			width: width, height: height,
+			textureScale:     *textureScale,
 			interfaceOptions: uiExecutableOptions{hdCursors: *hdCursors, regionMap: *regionMap, loadingPreview: *loadingPreview},
 			world: worldSelection{
 				network: *world && *network,
@@ -350,7 +356,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		var patched string
 		var packageDirs []string
 		if options.ui {
-			if err := buildUIWithProgress(ctx, setupUIArgs(options.interfaceOptions, game, cache, ui), progress); err != nil {
+			if err := buildUIWithProgress(ctx, setupUIArgs(options, game, cache, ui), progress); err != nil {
 				return err
 			}
 			patched = filepath.Join(ui, "SimCity4-hd.exe")
@@ -360,7 +366,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		}
 		phase = 2
 		if options.world.any() {
-			if err := buildWorldWithProgress(ctx, []string{game, cache, world}, progress, options.world); err != nil {
+			if err := buildWorldWithProgress(ctx, setupWorldArgs(options.textureScale, game, cache, world), progress, options.world); err != nil {
 				return err
 			}
 			packageDirs = append(packageDirs, filepath.Join(world, "Plugins"))
@@ -415,13 +421,19 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 	return err
 }
 
-func setupUIArgs(options uiExecutableOptions, game, cache, output string) []string {
+func setupUIArgs(options setupOptions, game, cache, output string) []string {
 	return []string{
-		fmt.Sprintf("-hd-cursors=%t", options.hdCursors),
-		fmt.Sprintf("-region-map-2x=%t", options.regionMap),
-		fmt.Sprintf("-loading-preview-2x=%t", options.loadingPreview),
+		fmt.Sprintf("-texture-scale=%d", options.textureScale),
+		fmt.Sprintf("-cursor-scale=%d", options.textureScale),
+		fmt.Sprintf("-hd-cursors=%t", options.interfaceOptions.hdCursors),
+		fmt.Sprintf("-region-map-2x=%t", options.interfaceOptions.regionMap),
+		fmt.Sprintf("-loading-preview-2x=%t", options.interfaceOptions.loadingPreview),
 		game, cache, output,
 	}
+}
+
+func setupWorldArgs(scale int, game, cache, output string) []string {
+	return []string{fmt.Sprintf("-texture-scale=%d", scale), game, cache, output}
 }
 
 func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {

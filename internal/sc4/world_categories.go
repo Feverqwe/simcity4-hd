@@ -84,13 +84,15 @@ func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, cat
 			return 0
 		}
 	})
-	scope, prefix := "default", "world-"+category.name+"-batch-x4"
+	scope, prefix := "default", fmt.Sprintf("world-%s-batch-x%d", category.name, art.scale)
 	limit := 0
 	if category.placement {
-		scope, prefix = "placement", "world-"+category.name+"-placement-candidate-x4"
+		scope, prefix = "placement", fmt.Sprintf("world-%s-placement-candidate-x%d", category.name, art.scale)
 		limit = 128 << 20
 	}
-	cache := filepath.Join(art.cache, "world", hatCheckpointSHA, "world-fsh-x4-v1", category.name, scope)
+	cache := func(scale int) string {
+		return filepath.Join(art.cache, "world", hatCheckpointSHA, fmt.Sprintf("world-fsh-x%d-v1", scale), category.name, scope)
+	}
 	batch, count := 0, 0
 	size := headerSize
 	var entries []resource
@@ -115,7 +117,7 @@ func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, cat
 		if !categoryTextureSupported(category, data) {
 			continue
 		}
-		data, err = art.texture(cache, data, 4, category.placement || category.name == "transport")
+		data, err = art.texture(cache, data, category.placement || category.name == "transport")
 		if err != nil {
 			return fmt.Errorf("%s: %w", id, err)
 		}

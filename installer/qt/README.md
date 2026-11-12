@@ -14,8 +14,9 @@ A `default` may start with an environment variable placeholder such as
 neither the backend nor the user has supplied it. Use `options` for boolean
 switches, each with an `id`, `label`, and boolean `default`. An optional
 `group` starts a titled group. An optional `requires` names a preceding
-checkbox; dependent options are disabled and passed as false when their
-parent is off. Set `artwork` to an optional image path relative to the
+checkbox; dependent options are disabled when their parent is off.
+For a dropdown, provide a `values` array of string `value` and `label`
+pairs and a string `default`. Set `artwork` to an optional image path relative to the
 manifest to show a branded header. The optional `displayResolution`
 object adds a display mode picker with a flag `id` and a `fallback` in
 `WIDTHxHEIGHT` format. The optional `icon` path sets the window icon.
@@ -23,7 +24,8 @@ object adds a display mode picker with a flag `id` and a `fallback` in
 The window invokes the backend with `inspect` at startup and `install` on
 request. Set `backendArgs` to prefix those commands (for example,
 `["setup"]` to select a subcommand). Nonempty path inputs become `-ID PATH` arguments. Boolean options
-are sent for `install` and `configure` as `-ID=true` or `-ID=false`. Set
+are sent for `install` and `configure` as `-ID=true` or `-ID=false`.
+Enabled dropdowns send `-ID=VALUE`. Set
 `reconfigure` in the manifest when the backend supports `configure` and
 `remove`. Configure receives the same flags as install. Remove receives
 the configured paths. Send one UTF-8 JSON
@@ -35,7 +37,7 @@ object per line on stdout and send diagnostics to stderr.
 | `step` | `phase` is a one-based stage number; `text` describes the current work. |
 | `progress` | `value` is measured progress for the current step, from 0 to 100. The next step restores the busy indicator. |
 | `count` | `value` counts units processed in the current step. An optional positive `total` sets the progress bar and displays both counts. |
-| `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, include `settings` with an `options` object keyed by manifest option ID and an optional `resolution` string. |
+| `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, include `settings` with an `options` object of booleans keyed by manifest option ID. Optional `choices` supplies dropdown values by ID, and `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
 | `error` | `text` describes the problem; optional `field` identifies a path the user can correct. |
 | `stopped` | Installation paused and may be retried. |

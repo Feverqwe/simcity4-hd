@@ -84,7 +84,9 @@ func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtw
 	if err != nil {
 		return nil, err
 	}
-	cache := filepath.Join(art.cache, "world", hatCheckpointSHA, "network-fsh-x4-v1")
+	cache := func(scale int) string {
+		return filepath.Join(art.cache, "world", hatCheckpointSHA, fmt.Sprintf("network-fsh-x%d-v1", scale))
+	}
 	entries := make([]resource, 0, len(ids))
 	report := progress.track(len(ids))
 	for i, id := range ids {
@@ -94,7 +96,7 @@ func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtw
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
-		hd, err := art.texture(cache, original, 4, true)
+		hd, err := art.texture(cache, original, true)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}

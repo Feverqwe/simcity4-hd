@@ -15,7 +15,7 @@ type cursorFrame struct {
 	hotspot image.Point
 }
 
-func cursorEntries(stock *archive, art uiArtwork) ([]resource, error) {
+func cursorEntries(stock *archive, art uiArtwork, scale int) ([]resource, error) {
 	var entries []resource
 	for _, record := range stock.records {
 		if record.id.kind != cursorResource {
@@ -36,11 +36,14 @@ func cursorEntries(stock *archive, art uiArtwork) ([]resource, error) {
 			return nil, fmt.Errorf("%s: %w", record.id, err)
 		}
 		for i, frame := range frames {
-			upscaled, err := upscaleCursorFrame(frame.pixels, art)
+			if scale*max(frame.pixels.Rect.Dx(), frame.pixels.Rect.Dy()) > 256 {
+				return nil, fmt.Errorf("%s frame %d: upscaled cursor exceeds Windows cursor dimensions", record.id, i)
+			}
+			upscaled, err := upscaleCursorFrame(frame.pixels, art, scale)
 			if err != nil {
 				return nil, fmt.Errorf("%s frame %d: %w", record.id, i, err)
 			}
-			frames[i] = cursorFrame{upscaled, frame.hotspot.Mul(2)}
+			frames[i] = cursorFrame{upscaled, frame.hotspot.Mul(scale)}
 		}
 		// Windows uses the first entry when loading at its file size.
 		slices.SortStableFunc(frames, func(a, b cursorFrame) int {
@@ -153,7 +156,7 @@ func decodeCursorBitmap(dib []byte, width, height int) (*image.NRGBA, error) {
 	return pixels, nil
 }
 
-func upscaleCursorFrame(source *image.NRGBA, art uiArtwork) (*image.NRGBA, error) {
+func upscaleCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.NRGBA, error) {
 	w, h := source.Rect.Dx(), source.Rect.Dy()
 	opaque := make([]image.Point, 0, w*h)
 	for y := range h {
@@ -164,10 +167,10 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork) (*image.NRGBA, error
 		}
 	}
 	if len(opaque) == 0 {
-		return image.NewNRGBA(image.Rect(0, 0, 2*w, 2*h)), nil
+		return image.NewNRGBA(image.Rect(0, 0, scale*w, scale*h)), nil
 	}
 	// Extend edge colors into clear pixels before RGB inference. The alpha
-	// channel comes directly from the original bitmap after downsampling.
+	// channel comes directly from the original bitmap.
 	rgb := image.NewNRGBA(source.Rect)
 	for y := range h {
 		for x := range w {
@@ -195,7 +198,10 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork) (*image.NRGBA, error
 	if err != nil {
 		return nil, err
 	}
-	result := halfLanczosRGB(enlarged)
+	result := enlarged
+	if scale == 2 {
+		result = halfLanczosRGB(enlarged)
+	}
 	restoreLanczosAlpha(source, result)
 	return result, nil
 }

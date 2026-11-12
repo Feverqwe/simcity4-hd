@@ -172,29 +172,49 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 		}
 	}
 	worldCache := filepath.Join(cache, "world", hatCheckpointSHA)
-	categories := filepath.Join(worldCache, "world-fsh-x4-v1")
-	if options.world.network {
-		if err := reserve(160*mib, 512*mib, filepath.Join(worldCache, "network-fsh-x4-v1")); err != nil {
-			return err
+	worldFolders := func(selection worldSelection, scale int) []string {
+		var folders []string
+		categories := filepath.Join(worldCache, fmt.Sprintf("world-fsh-x%d-v1", scale))
+		if selection.network {
+			folders = append(folders, filepath.Join(worldCache, fmt.Sprintf("network-fsh-x%d-v1", scale)))
 		}
-	}
-	if options.world.terrain {
-		if err := reserve(128*mib, 160*mib, filepath.Join(categories, "terrain")); err != nil {
-			return err
+		if selection.terrain {
+			folders = append(folders, filepath.Join(categories, "terrain"))
 		}
-	}
-	if options.world.models {
-		folders := []string{
-			filepath.Join(cache, "models", hatCheckpointSHA, "fsh-x4-v1"),
-			filepath.Join(cache, "fire-station", hatCheckpointSHA),
-			filepath.Join(cache, "fire-station-night", hatCheckpointSHA),
-		}
-		for _, category := range worldCategories {
-			if category.name != "terrain" {
-				folders = append(folders, filepath.Join(categories, category.name))
+		if selection.models {
+			folders = append(folders,
+				filepath.Join(cache, "models", hatCheckpointSHA, fmt.Sprintf("fsh-x%d-v1", scale)),
+				filepath.Join(cache, "fire-station-night", hatCheckpointSHA, fmt.Sprintf("x%d", scale)))
+			if scale == 4 {
+				folders = append(folders, filepath.Join(cache, "fire-station", hatCheckpointSHA))
+			}
+			for _, name := range []string{"lot", "animation", "transport"} {
+				folders = append(folders, filepath.Join(categories, name))
 			}
 		}
-		if err := reserve(22*gib+64*mib, 26*gib+64*mib, folders...); err != nil {
+		return folders
+	}
+	for _, component := range []struct {
+		selection worldSelection
+		installed uint64
+		cached    uint64
+	}{
+		{worldSelection{network: options.world.network}, 160 * mib, 512 * mib},
+		{worldSelection{terrain: options.world.terrain}, 128 * mib, 160 * mib},
+		{worldSelection{models: options.world.models}, 22*gib + 64*mib, 26*gib + 64*mib},
+	} {
+		if !component.selection.any() {
+			continue
+		}
+		if options.textureScale == 2 {
+			// x2 keeps both the source x4 textures and the projected x2 textures.
+			if err := reserve(0, component.cached, worldFolders(component.selection, 4)...); err != nil {
+				return err
+			}
+			if err := reserve(component.installed/3, component.cached/3, worldFolders(component.selection, 2)...); err != nil {
+				return err
+			}
+		} else if err := reserve(component.installed, component.cached, worldFolders(component.selection, 4)...); err != nil {
 			return err
 		}
 	}

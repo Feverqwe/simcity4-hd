@@ -23,33 +23,49 @@ const installedSettingsChangesFile = "SettingsChanges.json"
 var worldOptionIDs = []string{"network", "terrain", "models"}
 
 type installedSettings struct {
-	Options    map[string]bool `json:"options"`
-	Resolution string          `json:"resolution,omitempty"`
+	Options    map[string]bool   `json:"options"`
+	Choices    map[string]string `json:"choices,omitempty"`
+	Resolution string            `json:"resolution,omitempty"`
 }
 
-func worldPackageOption(name string) string {
-	switch {
-	case name == "network-x4.dat":
-		return "network"
-	case name == "terrain-indexed-x4.dat", strings.HasPrefix(name, "world-terrain-"):
-		return "terrain"
-	case name == modelOverridesPackage, strings.HasPrefix(name, "world-"), strings.HasPrefix(name, "model-materials-"):
-		return "models"
-	default:
-		return ""
+func worldPackage(name string) (option, scale string) {
+	base, ok := strings.CutSuffix(name, ".dat")
+	if !ok {
+		return "", ""
 	}
-}
-
-func isWorldPackage(name string) bool {
-	return strings.HasSuffix(name, ".dat") && worldPackageOption(name) != ""
+	marker := strings.LastIndex(base, "-x")
+	if marker < 0 {
+		return "", ""
+	}
+	scale, _, _ = strings.Cut(base[marker+2:], "-")
+	if scale != "2" && scale != "4" {
+		return "", ""
+	}
+	switch prefix := base[:marker]; {
+	case prefix == "network":
+		return "network", scale
+	case prefix == "terrain-indexed", strings.HasPrefix(prefix, "world-terrain-"):
+		return "terrain", scale
+	case prefix == "model-overrides", strings.HasPrefix(prefix, "world-"), strings.HasPrefix(prefix, "model-materials"):
+		return "models", scale
+	}
+	return "", ""
 }
 
 func isInterfacePackage(name string) bool {
 	switch name {
-	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat":
+	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat", "cursors-hd-x4.dat":
 		return true
-	case "city-hud-x4.dat", "catalog-square-x4.dat", "catalog-bridge-x4.dat", "catalog-chrome-x4.dat",
-		"disasters-background-x4.dat", "mysim-portraits-x4.dat":
+	}
+	base, found := strings.CutSuffix(name, "-x4.dat")
+	if !found {
+		base, found = strings.CutSuffix(name, "-x2.dat")
+	}
+	if !found {
+		return false
+	}
+	switch base {
+	case "city-hud", "catalog-square", "catalog-bridge", "catalog-chrome", "disasters-background", "mysim-portraits":
 		return true
 	}
 	return false
@@ -101,7 +117,8 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 	settings.Options["world"] = false
 	var ui uiExecutableOptions
 	if settings.Options["ui"] {
-		ui, err = installedInterface(executable, fileExists(filepath.Join(active, "cursors-hd.dat")))
+		ui, err = installedInterface(executable, fileExists(filepath.Join(active, "cursors-hd.dat")) ||
+			fileExists(filepath.Join(active, "cursors-hd-x4.dat")))
 		if err != nil {
 			return installedSettings{}, uiExecutableOptions{}, err
 		}
@@ -110,41 +127,53 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 		settings.Options["hd-cursors"] = ui.hdCursors
 		settings.Options["region-map"] = ui.regionMap
 		settings.Options["loading-preview"] = ui.loadingPreview
+		scale := "4"
+		if fileExists(filepath.Join(active, "city-hud-x2.dat")) {
+			scale = "2"
+		}
+		settings.Choices = map[string]string{"texture-scale": scale}
 	}
+	worldScale := ""
 	for _, entry := range entries {
-		if entry.Type().IsRegular() && isWorldPackage(entry.Name()) {
+		option, scale := worldPackage(entry.Name())
+		if entry.Type().IsRegular() && option != "" {
 			settings.Options["world"] = true
-			settings.Options[worldPackageOption(entry.Name())] = true
+			settings.Options[option] = true
+			worldScale = scale
 		}
 	}
-	haveWorld := settings.Options["world"]
-	if !haveWorld {
+	if !settings.Options["world"] {
 		parked, err := os.ReadDir(filepath.Join(game, inactiveWorldFolder))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return installedSettings{}, uiExecutableOptions{}, err
-		}
-		for _, entry := range parked {
-			if entry.Type().IsRegular() && isWorldPackage(entry.Name()) {
-				settings.Options[worldPackageOption(entry.Name())] = true
-				haveWorld = true
-			}
 		}
 		previous, err := os.ReadFile(filepath.Join(active, installedWorldSelectionFile))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return installedSettings{}, uiExecutableOptions{}, err
 		}
-		if err == nil {
-			selected := strings.Fields(string(previous))
-			for _, option := range worldOptionIDs {
-				settings.Options[option] = settings.Options[option] && slices.Contains(selected, option)
+		selected := strings.Fields(string(previous))
+		for _, entry := range parked {
+			option, scale := worldPackage(entry.Name())
+			if entry.Type().IsRegular() && option != "" &&
+				(len(selected) == 0 || slices.Contains(selected, option)) {
+				settings.Options[option] = true
+				worldScale = scale
+			}
+		}
+		for _, scale := range []string{"2", "4"} {
+			if slices.Contains(selected, "scale="+scale) {
+				worldScale = scale
 			}
 		}
 	}
-	if haveWorld {
+	if worldScale != "" {
 		for _, option := range worldOptionIDs {
 			if _, found := settings.Options[option]; !found {
 				settings.Options[option] = false
 			}
+		}
+		if settings.Choices == nil {
+			settings.Choices = map[string]string{"texture-scale": worldScale}
 		}
 	}
 	graphics, err := os.ReadFile(filepath.Join(plugins, graphicsINI))
@@ -427,7 +456,11 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err != nil {
 		return err
 	}
-	rebuildUI := desired.ui && (!settings.Options["ui"] || desired.interfaceOptions != oldUI)
+	scale := strconv.Itoa(desired.textureScale)
+	cursorScaleChanged := desired.interfaceOptions.hdCursors &&
+		fileExists(filepath.Join(game, "Plugins", modFolder, "cursors-hd-x4.dat")) != (scale == "4")
+	rebuildUI := desired.ui && (!settings.Options["ui"] || desired.interfaceOptions != oldUI ||
+		scale != settings.Choices["texture-scale"] || cursorScaleChanged)
 	replaceEXE := rebuildUI || !desired.ui && settings.Options["ui"]
 	var stock []byte
 	if replaceEXE {
@@ -467,8 +500,9 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	available := make(map[string]bool)
 	for _, files := range [][]os.DirEntry{activeFiles, inactiveFiles} {
 		for _, entry := range files {
-			if isWorldPackage(entry.Name()) && entry.Type().IsRegular() {
-				available[worldPackageOption(entry.Name())] = true
+			option, packageScale := worldPackage(entry.Name())
+			if option != "" && packageScale == scale && entry.Type().IsRegular() {
+				available[option] = true
 			}
 		}
 	}
@@ -517,7 +551,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	}
 	rememberWorld := settings.Options["world"] && !desired.world.any()
 	if rememberWorld {
-		var selected []string
+		selected := []string{"scale=" + settings.Choices["texture-scale"]}
 		for _, option := range worldOptionIDs {
 			if settings.Options[option] {
 				selected = append(selected, option)
@@ -538,9 +572,10 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 			}
 			name := entry.Name()
 			target := newActive
+			option, packageScale := worldPackage(name)
 			switch {
-			case isWorldPackage(name):
-				if !worldOptions[worldPackageOption(name)] {
+			case option != "":
+				if packageScale != scale || !worldOptions[option] {
 					target = newInactive
 				}
 			case group.directory == inactive:
@@ -566,14 +601,14 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	uiStage, worldStage := filepath.Join(work, "UI"), filepath.Join(work, "World")
 	var generated []string
 	if rebuildUI {
-		if err := buildUIFromExecutable(ctx, setupUIArgs(desired.interfaceOptions, game, cache, uiStage), progress, bytes.Clone(stock)); err != nil {
+		if err := buildUIFromExecutable(ctx, setupUIArgs(desired, game, cache, uiStage), progress, bytes.Clone(stock)); err != nil {
 			return err
 		}
 		generated = append(generated, filepath.Join(uiStage, "Plugins"))
 	}
 	phase = 2
 	if missing.any() {
-		if err := buildWorldWithProgress(ctx, []string{game, cache, worldStage}, progress, missing); err != nil {
+		if err := buildWorldWithProgress(ctx, setupWorldArgs(desired.textureScale, game, cache, worldStage), progress, missing); err != nil {
 			return err
 		}
 		generated = append(generated, filepath.Join(worldStage, "Plugins"))

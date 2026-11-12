@@ -66,6 +66,31 @@ func validateBCElement(data []byte, e fshElement, added int, preservePlacement b
 
 func rebuildBCTexture(data []byte, scale int, preservePlacement bool,
 	upscale func(*image.NRGBA) (*image.NRGBA, error)) ([]byte, error) {
+	return repackBCTexture(data, scale, preservePlacement, func(_ int, e fshElement, source *image.NRGBA) ([]byte, error) {
+		art, err := upscale(source)
+		if err != nil {
+			return nil, err
+		}
+		if art.Rect.Dx() != e.width*scale || art.Rect.Dy() != e.height*scale {
+			return nil, errors.New("upscaler returned incorrect texture dimensions")
+		}
+		encoded, err := encodeBC(art, source, scale, e.code)
+		if err != nil {
+			return nil, err
+		}
+		if e.mipCount() != 0 && scale == 4 {
+			level, err := encodeBC(halfLanczosRGB(art), source, 2, e.code)
+			if err != nil {
+				return nil, err
+			}
+			encoded = append(encoded, level...)
+		}
+		return encoded, nil
+	})
+}
+
+func repackBCTexture(data []byte, scale int, preservePlacement bool,
+	encode func(int, fshElement, *image.NRGBA) ([]byte, error)) ([]byte, error) {
 	added := 1
 	switch scale {
 	case 2:
@@ -91,31 +116,15 @@ func rebuildBCTexture(data []byte, scale int, preservePlacement bool,
 		payload := e.start + 16
 		end := payload + size
 		source := decodeBC(data[payload:end], e.width, e.height, e.code)
-		art, err := upscale(source)
+		encoded, err := encode(i, e, source)
 		if err != nil {
 			return nil, err
-		}
-		if art.Rect.Dx() != e.width*scale || art.Rect.Dy() != e.height*scale {
-			return nil, errors.New("upscaler returned incorrect texture dimensions")
-		}
-		encoded, err := encodeBC(art, source, scale, e.code)
-		if err != nil {
-			return nil, err
-		}
-		mips := e.mipCount()
-		if mips != 0 && scale == 4 {
-			middle := halfLanczosRGB(art)
-			level, err := encodeBC(middle, source, 2, e.code)
-			if err != nil {
-				return nil, err
-			}
-			encoded = append(encoded, level...)
 		}
 		header := [16]byte(data[e.start:payload])
-		little.PutUint16(header[4:], uint16(art.Rect.Dx()))
-		little.PutUint16(header[6:], uint16(art.Rect.Dy()))
+		little.PutUint16(header[4:], uint16(e.width*scale))
+		little.PutUint16(header[6:], uint16(e.height*scale))
 		delta := len(encoded) - size
-		if mips != 0 {
+		if e.mipCount() != 0 {
 			// Keep the complete original chain byte for byte.
 			end = payload
 			delta = len(encoded)

@@ -18,24 +18,39 @@ type worldArtwork struct {
 	cache string
 	ctx   context.Context
 	infer func([]byte) ([]byte, error)
+	scale int
 }
 
-func (a worldArtwork) texture(cache string, original []byte, scale int, placement bool) ([]byte, error) {
+func (a worldArtwork) texture(cache func(int) string, original []byte, placement bool) ([]byte, error) {
 	if err := a.ctx.Err(); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(cache, fmt.Sprintf("%x.fsh", sha256.Sum256(original)))
+	name := fmt.Sprintf("%x.fsh", sha256.Sum256(original))
+	path := filepath.Join(cache(a.scale), name)
 	data, err := os.ReadFile(path)
 	if err == nil {
-		if err := validateWorldTexture(original, data, scale); err != nil {
+		if err := validateWorldTexture(original, data, a.scale); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		return data, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) || a.infer == nil {
+	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	data, err = rebuildBCTexture(original, scale, placement, a.upscale)
+	if a.scale == 4 && a.infer == nil {
+		return nil, err
+	}
+	if a.scale == 2 {
+		full := a
+		full.scale = 4
+		var cached []byte
+		cached, err = full.texture(cache, original, placement)
+		if err == nil {
+			data, err = projectWorldTexture(original, cached, placement)
+		}
+	} else {
+		data, err = rebuildBCTexture(original, a.scale, placement, a.upscale)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +61,27 @@ func (a worldArtwork) texture(cache string, original []byte, scale int, placemen
 		return nil, err
 	}
 	return data, nil
+}
+
+func projectWorldTexture(original, cached []byte, placement bool) ([]byte, error) {
+	if err := validateWorldTexture(original, cached, 4); err != nil {
+		return nil, err
+	}
+	elements, err := fshLayout(cached)
+	if err != nil {
+		return nil, err
+	}
+	return repackBCTexture(original, 2, placement, func(i int, e fshElement, source *image.NRGBA) ([]byte, error) {
+		hd := elements[i]
+		top := hd.start + 16
+		end := top + bcLevelBytes(hd.width, hd.height, bcBlockSize(hd.code))
+		if e.mipCount() != 0 {
+			// The x4 package already carries a compatible x2 mip.
+			return cached[end : end+bcLevelBytes(e.width*2, e.height*2, bcBlockSize(e.code))], nil
+		}
+		art := halfLanczosRGB(decodeBC(cached[top:end], hd.width, hd.height, hd.code))
+		return encodeBC(art, source, 2, e.code)
+	})
 }
 
 func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {
@@ -122,7 +158,8 @@ func verifyWorldTextureTail(stock, hd []byte, e, r fshElement, scale int) error 
 }
 
 func worldInference(ctx context.Context, cache string, config inferenceConfig) (worldArtwork, func() error) {
-	art := worldArtwork{cache: cache, ctx: ctx}
+	art := worldArtwork{cache: cache, ctx: ctx, scale: config.scale}
+	config.scale = 4 // Both output scales reuse the full-resolution inference result.
 	var worker *inferenceWorker
 	if config.enabled() {
 		art.infer = func(data []byte) ([]byte, error) {

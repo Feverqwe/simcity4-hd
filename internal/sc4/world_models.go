@@ -34,12 +34,12 @@ var modelPasses = []modelPass{
 	{"G264", railMaterials},
 }
 
-func (p modelPass) prefix() string {
+func (p modelPass) prefix(scale int) string {
 	name := "model-materials"
 	if p.directory != "G354" {
 		name += "-" + strings.ToLower(p.directory)
 	}
-	return name + string(p.selection) + "-x4"
+	return fmt.Sprintf("%s%s-x%d", name, p.selection, scale)
 }
 
 func modelMaterialSources(stock *gameCatalog, report *materialReport, selection modelSelection) ([]resourceID, error) {
@@ -145,7 +145,9 @@ func modelTextureSupported(data []byte, pass modelPass) (bool, error) {
 func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldArtwork, output string, progress buildProgress) (map[resourceID]bool, error) {
 	const batchSize = 128
 	seen := make(map[resourceID]bool)
-	cache := filepath.Join(art.cache, "models", hatCheckpointSHA, "fsh-x4-v1")
+	cache := func(scale int) string {
+		return filepath.Join(art.cache, "models", hatCheckpointSHA, fmt.Sprintf("fsh-x%d-v1", scale))
+	}
 	sources := make(map[modelSelection][]resourceID)
 	total := 0
 	for _, pass := range modelPasses {
@@ -164,17 +166,18 @@ func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldA
 	processed := 0
 	for _, pass := range modelPasses {
 		ids := sources[pass.selection]
+		prefix := pass.prefix(art.scale)
 		var entries []resource
 		batch, count := 0, 0
 		write := func() error {
 			batch++
-			path := filepath.Join(output, fmt.Sprintf("%s-%03d.dat", pass.prefix(), batch))
+			path := filepath.Join(output, fmt.Sprintf("%s-%03d.dat", prefix, batch))
 			if err := publishFile(path, func(w io.Writer) error {
 				return writeArchive(w, entries)
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("%s: %d textures prepared\n", pass.prefix(), count)
+			fmt.Printf("%s: %d textures prepared\n", prefix, count)
 			return nil
 		}
 		for _, id := range ids {
@@ -204,7 +207,7 @@ func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldA
 			if seen[id] {
 				return nil, fmt.Errorf("duplicate model texture %s", id)
 			}
-			hd, err := art.texture(cache, data, 4, pass.directory == "G264" || pass.directory == "G357")
+			hd, err := art.texture(cache, data, pass.directory == "G264" || pass.directory == "G357")
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", id, err)
 			}
@@ -223,7 +226,7 @@ func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldA
 				return nil, err
 			}
 		}
-		fmt.Printf("%s: %d textures in %d packages\n", pass.prefix(), count, batch)
+		fmt.Printf("%s: %d textures in %d packages\n", prefix, count, batch)
 	}
 	report(total)
 	return seen, nil
