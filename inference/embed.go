@@ -3,7 +3,7 @@ package inference
 
 import _ "embed"
 
-// WorkerSource is passed to the Python interpreter in WSL.
+// WorkerSource is passed to the Python interpreter selected for inference.
 //
 //go:embed worker.py
 var WorkerSource string

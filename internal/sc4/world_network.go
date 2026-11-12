@@ -106,10 +106,12 @@ func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtw
 
 func runNetworkTextures(args []string) (result error) {
 	flags := flag.NewFlagSet("network-textures", flag.ContinueOnError)
-	distro := flags.String("wsl-distro", "", "WSL distribution for inference")
-	python := flags.String("wsl-python", "python3", "Python interpreter in WSL")
-	weights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
+	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	config, err := readInferenceConfig()
+	if err != nil {
 		return err
 	}
 	if flags.NArg() != 3 {
@@ -136,9 +138,7 @@ func runNetworkTextures(args []string) (result error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	art, closeWorker := worldInference(ctx, cache, inferenceConfig{
-		distro: *distro, python: *python, weights: *weights, scale: 4, tile: 64, overlap: 16,
-	})
+	art, closeWorker := worldInference(ctx, cache, config)
 	defer func() {
 		if result != nil {
 			cancel()

@@ -458,10 +458,12 @@ func runBuildUI(args []string) (result error) {
 	hdCursors := flags.Bool("hd-cursors", false, "build experimental HD game cursors")
 	regionMap := flags.Bool("region-map-2x", false, "double the region map")
 	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
-	distro := flags.String("wsl-distro", "", "WSL distribution for inference")
-	python := flags.String("wsl-python", "python3", "Python interpreter in WSL")
-	weights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
+	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	config, err := readInferenceConfig()
+	if err != nil {
 		return err
 	}
 	if flags.NArg() != 3 {
@@ -492,7 +494,6 @@ func runBuildUI(args []string) (result error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var worker *inferenceWorker
-	inferenceScale := 4
 	closeWorker := func() error {
 		if worker == nil {
 			return nil
@@ -508,13 +509,11 @@ func runBuildUI(args []string) (result error) {
 		result = errors.Join(result, closeWorker())
 	}()
 	var infer func([]byte) ([]byte, error)
-	if *weights != "" {
+	if config.weights != "" {
 		infer = func(data []byte) ([]byte, error) {
 			if worker == nil {
 				var err error
-				worker, err = startInference(ctx, inferenceConfig{
-					distro: *distro, python: *python, weights: *weights, scale: inferenceScale, tile: 64, overlap: 16,
-				}, os.Stderr)
+				worker, err = startInference(ctx, config, os.Stderr)
 				if err != nil {
 					return nil, err
 				}
@@ -558,7 +557,7 @@ func runBuildUI(args []string) (result error) {
 		if err := closeWorker(); err != nil {
 			return err
 		}
-		inferenceScale = 2
+		config.scale = 2
 	}
 	suffix := fmt.Sprintf("x%d", *textureScale)
 	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-"+suffix), *textureScale, infer)

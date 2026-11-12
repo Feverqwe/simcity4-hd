@@ -154,10 +154,12 @@ func mySimPortraitEntries(stock *archive, cache string, scale int, infer func([]
 
 func runUIAssets(name string, args []string) (result error) {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
-	distro := flags.String("wsl-distro", "", "WSL distribution for inference")
-	python := flags.String("wsl-python", "python3", "Python interpreter in WSL")
-	weights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
+	readInferenceConfig := inferenceFlags(flags)
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	config, err := readInferenceConfig()
+	if err != nil {
 		return err
 	}
 	if flags.NArg() != 3 {
@@ -185,13 +187,11 @@ func runUIAssets(name string, args []string) (result error) {
 		}
 	}()
 	var infer func([]byte) ([]byte, error)
-	if *weights != "" {
+	if config.weights != "" {
 		infer = func(png []byte) ([]byte, error) {
 			if worker == nil {
 				var err error
-				worker, err = startInference(ctx, inferenceConfig{
-					distro: *distro, python: *python, weights: *weights, scale: 4, tile: 64, overlap: 16,
-				}, os.Stderr)
+				worker, err = startInference(ctx, config, os.Stderr)
 				if err != nil {
 					return nil, err
 				}

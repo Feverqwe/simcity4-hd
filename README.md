@@ -20,27 +20,28 @@ The Windows builder creates the mod from your local game installation. You suppl
 ### Requirements
 
 - **SimCity 4 Deluxe on Steam**, build 4644414, with the original Windows executable version 1.1.641.0. The builder checks the executable fingerprint. The reference installation used the English locale.
-- **WSL 2** with Python 3.12 and a CUDA-capable NVIDIA setup. The reference build used an RTX 5070 Ti and PyTorch 2.11 with CUDA 12.8.
-- Free disk space for the WSL environment, inference cache and test profile. Allow disk space for the ×4 texture cache, the built packages, and a separate test profile.
+- **64-bit Python 3.12 for Windows** and an NVIDIA GPU with CUDA and bfloat16 support.
+- Free disk space for the Python environment, ×4 texture cache, built packages, and a separate test profile.
 - A renderer capable of native 3840 × 2160. For SCD3D11, download [v0.5.0](https://github.com/caspervg/scd3d11/releases/tag/v0.5.0).
 
-### Set up inference in WSL
+### Set up Python on Windows
 
-Install the Python dependencies in WSL. The Windows builder invokes this interpreter for HAT inference.
+In PowerShell, create a Python environment for texture upscaling. The builder can use it directly on Windows.
 
-```bash
-python3 -m venv ~/.venvs/sc4-hd
-source ~/.venvs/sc4-hd/bin/activate
-python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
-python -m pip install numpy==2.2.6 Pillow==11.3.0 safetensors==0.5.3 spandrel==0.4.2
-python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name())'
+```powershell
+$venv = Join-Path $env:USERPROFILE 'sc4-hd-venv'
+py -3.12 -m venv $venv
+$python = Join-Path $venv 'Scripts\python.exe'
+& $python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+& $python -m pip install numpy==2.2.6 Pillow==11.3.0 safetensors==0.5.3 spandrel==0.4.2
+& $python -c 'import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False); print(torch.cuda.get_device_name())'
 ```
 
 Download `IllustrationJaNai_V3detail.zip` and extract `4x_IllustrationJaNai_V3detail_HAT_L_28k_bf16.safetensors`. [IllustrationJaNai V3 release](https://github.com/the-database/MangaJaNai/releases/tag/3.0.0)
 
 ### Build UI and World on Windows
 
-Download the Windows executable from GitHub Releases, or run `go build -o simcity4-hd-windows-amd64.exe .` from a source checkout. Open PowerShell in the directory containing the builder. Use Windows paths for the game, cache, and output. The Python interpreter and weights use WSL paths.
+From a source checkout, run `go build -o simcity4-hd-windows-amd64.exe .`. If you use a prebuilt builder, check that `ui -h` lists `-python` and `-weights`. In the same PowerShell session, go to the directory containing the builder and set the Windows paths below.
 
 ```powershell
 $builder = '.\simcity4-hd-windows-amd64.exe'
@@ -49,9 +50,8 @@ $cache = 'C:\SC4Test\Cache'
 $ui = 'C:\SC4Test\UI'
 $world = 'C:\SC4Test\World'
 $inference = @(
-    '-wsl-distro', 'Ubuntu-24.04',
-    '-wsl-python', '/home/your-user/.venvs/sc4-hd/bin/python',
-    '-wsl-weights', '/path/to/4x_IllustrationJaNai_V3detail_HAT_L_28k_bf16.safetensors'
+    '-python', $python,
+    '-weights', 'C:\SC4Test\4x_IllustrationJaNai_V3detail_HAT_L_28k_bf16.safetensors'
 )
 
 & $builder ui -texture-scale 4 @inference $game $cache $ui

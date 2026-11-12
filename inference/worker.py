@@ -28,7 +28,7 @@ def load_upscale(weights=WEIGHTS, *, scale=2, tile=64, overlap=16):
         raise ValueError('expected output scale 2 or 4')
     verify_checkpoint(weights)
     if not torch.cuda.is_available():
-        raise RuntimeError('CUDA is unavailable in the WSL environment')
+        raise RuntimeError('CUDA is unavailable. Check the NVIDIA driver and install a CUDA build of PyTorch.')
     model = ModelLoader().load_from_file(weights)
     if not isinstance(model, ImageModelDescriptor) or model.scale != 4:
         raise ValueError('expected a 4x image upscaling model')
