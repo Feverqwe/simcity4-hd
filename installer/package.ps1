@@ -59,7 +59,12 @@ try {
         "-DCMAKE_PREFIX_PATH=$QtRoot", '-DCMAKE_BUILD_TYPE=Release')
     Invoke-Checked cmake @('--build', $build, '--config', 'Release', '--parallel')
     Invoke-Checked cmake @('--install', $build, '--config', 'Release', '--prefix', $stage)
-    Invoke-Checked $deploy @('--release', '--no-translations', (Join-Path $stage 'qt/Setup-UI.exe'))
+    # The installer uses raster Qt Widgets and loads JPEG and ICO artwork.
+    Invoke-Checked $deploy @('--release', '--no-translations',
+        '--skip-plugin-types', 'generic,networkinformation,tls',
+        '--exclude-plugins', 'qgif',
+        '--no-system-d3d-compiler', '--no-system-dxc-compiler', '--no-opengl-sw',
+        (Join-Path $stage 'qt/Setup-UI.exe'))
     if (-not (Test-Path -LiteralPath (Join-Path $stage 'qt/platforms/qwindows.dll'))) {
         throw 'The Qt Windows platform plugin was not deployed.'
     }

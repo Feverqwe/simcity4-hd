@@ -2,18 +2,13 @@ name: Windows build
 
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
-  pull_request:
-  workflow_dispatch:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    outputs:
-      version: ${{ steps.build.outputs.version }}
+  installer:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,62 +21,31 @@ jobs:
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test ./...
-      - name: Build and check the Windows executable
-        id: build
+      - name: Build and check the installer backend
         env:
           CGO_ENABLED: '0'
           GOOS: windows
           GOARCH: amd64
         run: |
-          $version = "dev-$($env:GITHUB_SHA.Substring(0, 12))"
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            $version = $env:GITHUB_REF_NAME
-            if ($version -cnotmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$') {
-              throw 'Expected a version tag such as v1.2.3 or v1.2.3-rc.1.'
-            }
+          $version = $env:GITHUB_REF_NAME
+          if ($version -cnotmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$') {
+            throw 'Expected a version tag such as v1.2.3 or v1.2.3-rc.1.'
           }
-          $name = 'simcity4-uhd-windows-amd64.exe'
-          go build -trimpath -ldflags "-X main.version=$version" -o $name .
+          $backend = Join-Path $env:RUNNER_TEMP 'simcity4-uhd-windows-amd64.exe'
+          go build -trimpath -ldflags "-X main.version=$version" -o $backend .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $actual = & ".\$name" --version
+          $actual = & $backend --version
           if ($LASTEXITCODE -ne 0 -or $actual -cne $version) {
             throw "Expected embedded version $version, got $actual."
           }
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $name).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText((Join-Path $PWD "$name.sha256"), "$hash  $name`n")
-          "version=$version" >> $env:GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v4
-        with:
-          name: simcity4-uhd-${{ steps.build.outputs.version }}-windows-amd64
-          path: |
-            simcity4-uhd-windows-amd64.exe
-            simcity4-uhd-windows-amd64.exe.sha256
-          if-no-files-found: error
-
-  installer:
-    needs: build
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: installer/go.mod
-          cache: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: simcity4-uhd-${{ needs.build.outputs.version }}-windows-amd64
-          path: builder
       - name: Prepare Qt and MinGW
         run: ./installer/ci-qt.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'qt-kit')
       - name: Build the self-contained installer
         run: |
           $qt = Join-Path $env:RUNNER_TEMP 'qt-kit'
           $env:Path = "$(Join-Path $qt 'bin');$(Join-Path $qt 'Tools/mingw1310_64/bin');$env:Path"
-          $backend = 'builder/simcity4-uhd-windows-amd64.exe'
-          $expected = ((Get-Content -Raw "$backend.sha256") -split '\s+')[0]
-          if ((Get-FileHash -Algorithm SHA256 $backend).Hash.ToLowerInvariant() -cne $expected) {
-            throw 'The builder checksum does not match.'
-          }
+          $backend = Join-Path $env:RUNNER_TEMP 'simcity4-uhd-windows-amd64.exe'
+          $expected = (Get-FileHash -Algorithm SHA256 -LiteralPath $backend).Hash.ToLowerInvariant()
           ./installer/package.ps1 -QtRoot $qt -Backend $backend -Output dist/SimCity4UHD-Setup.exe
           $name = 'SimCity4UHD-Setup.exe'
           $runtime = Join-Path $env:RUNNER_TEMP "setup-$([Guid]::NewGuid())"
@@ -96,20 +60,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: simcity4-uhd-windows-installer
-          path: dist/*
+          path: |
+            dist/SimCity4UHD-Setup.exe
+            dist/SimCity4UHD-Setup.exe.sha256
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [build, installer]
+    needs: installer
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: simcity4-uhd-${{ needs.build.outputs.version }}-windows-amd64
-          path: release
       - uses: actions/download-artifact@v4
         with:
           name: simcity4-uhd-windows-installer
@@ -119,14 +80,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.build.outputs.version }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          sha256sum --check simcity4-uhd-windows-amd64.exe.sha256
           sha256sum --check SimCity4UHD-Setup.exe.sha256
           flags=(--verify-tag --generate-notes)
           if [[ "${RELEASE_TAG%%+*}" == *-* ]]; then
             flags+=(--prerelease)
           fi
           gh release create "$RELEASE_TAG" "${flags[@]}" \
-            simcity4-uhd-windows-amd64.exe simcity4-uhd-windows-amd64.exe.sha256 \
             SimCity4UHD-Setup.exe SimCity4UHD-Setup.exe.sha256

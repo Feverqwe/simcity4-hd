@@ -293,12 +293,23 @@ func (changes setupINIChanges) edit(name, config string, options setupOptions, i
 			{Section: "GraphicsOptions", Key: "WindowHeight", Applied: strconv.Itoa(options.height)},
 			{Section: "GraphicsOptions", Key: "EnableIntroVideo", Applied: strconv.FormatBool(!options.skipIntro)},
 		}
-		if install {
-			settings = append(settings,
-				setupINISetting{Section: "GraphicsOptions", Key: "Driver", Applied: "DirectX"},
-				setupINISetting{Section: "GraphicsOptions", Key: "ColorDepth", Applied: "32"},
-				setupINISetting{Section: "GraphicsOptions", Key: "WindowMode", Applied: "FullScreen"},
-			)
+		for _, setting := range []setupINISetting{
+			{Section: "GraphicsOptions", Key: "Driver", Applied: "DirectX"},
+			{Section: "GraphicsOptions", Key: "ColorDepth", Applied: "32"},
+			{Section: "GraphicsOptions", Key: "WindowMode", Applied: "FullScreen"},
+		} {
+			if install || setupINIValue(config, setting.Section, setting.Key) == "" {
+				settings = append(settings, setting)
+			}
+		}
+		// SC4GraphicsOptions 1.4.1 aborts parsing when these keys are absent.
+		for _, setting := range []setupINISetting{
+			{Section: "GraphicsOptions", Key: "PauseGameOnFocusLoss", Applied: "false"},
+			{Section: "GraphicsOptions", Key: "ForceDrawOnScroll", Applied: "false"},
+		} {
+			if setupINIValue(config, setting.Section, setting.Key) == "" {
+				settings = append(settings, setting)
+			}
 		}
 	}
 	for _, setting := range settings {
