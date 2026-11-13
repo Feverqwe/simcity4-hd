@@ -85,16 +85,14 @@ try {
     Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.go' -File | Copy-Item -Destination $bootstrap
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'go.mod') -Destination $bootstrap
 
-    Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $payload = [IO.Compression.ZipFile]::Open((Join-Path $bootstrap 'runtime.zip'), [IO.Compression.ZipArchiveMode]::Create)
-    try {
-        foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse) {
-            $relative = $file.FullName.Substring($stage.Length + 1).Replace('\', '/')
-            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($payload, $file.FullName, $relative,
-                [IO.Compression.CompressionLevel]::Optimal) | Out-Null
-        }
-    } finally { $payload.Dispose() }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'go.sum') -Destination $bootstrap
+
+    $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+    $extractor = if ($sevenZip) { $sevenZip.Source } else { Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
+    $runtimeTar = Join-Path $temp 'runtime.tar'
+    Invoke-Checked tar.exe @('-cf', $runtimeTar, '-C', $stage, '.')
+    Invoke-Checked $extractor @('a', '-txz', '-mx=9', '-md=32m', '-mmt=1',
+        (Join-Path $bootstrap 'runtime.tar.xz'), $runtimeTar)
 
     New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($outputFile)) | Out-Null
     Push-Location $bootstrap

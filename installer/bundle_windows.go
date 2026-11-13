@@ -3,16 +3,19 @@
 package main
 
 import (
-	"archive/zip"
+	"archive/tar"
 	"bytes"
 	_ "embed"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/ulikunitz/xz"
 )
 
-//go:embed runtime.zip
+//go:embed runtime.tar.xz
 var payload []byte
 
 func setupRuntime() (string, func(), error) {
@@ -29,32 +32,35 @@ func setupRuntime() (string, func(), error) {
 }
 
 func unpackRuntime(dir string) error {
-	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	stream, err := (xz.ReaderConfig{SingleStream: true}).NewReader(bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	for _, entry := range archive.File {
-		if entry.FileInfo().IsDir() {
+	archive := tar.NewReader(stream)
+	for {
+		entry, err := archive.Next()
+		if err == io.EOF {
+			// Read the stream footer to verify the XZ integrity check.
+			_, err = io.Copy(io.Discard, stream)
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if entry.Typeflag == tar.TypeDir {
 			continue
 		}
-		if err := extractRuntimeFile(dir, entry); err != nil {
-			return fmt.Errorf("Could not unpack setup: %w", err)
+		relative, err := filepath.Localize(strings.TrimPrefix(entry.Name, "./"))
+		if err != nil || entry.Typeflag != tar.TypeReg {
+			return fmt.Errorf("invalid setup file %q", entry.Name)
+		}
+		if err := extractRuntimeFile(filepath.Join(dir, relative), archive); err != nil {
+			return fmt.Errorf("could not unpack setup: %w", err)
 		}
 	}
-	return nil
 }
 
-func extractRuntimeFile(root string, entry *zip.File) error {
-	relative, err := filepath.Localize(entry.Name)
-	if err != nil || !entry.Mode().IsRegular() {
-		return fmt.Errorf("invalid setup file %q", entry.Name)
-	}
-	input, err := entry.Open()
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	target := filepath.Join(root, relative)
+func extractRuntimeFile(target string, input io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		return err
 	}

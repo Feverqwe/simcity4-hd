@@ -10,12 +10,18 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+
+	"github.com/ulikunitz/xz"
 )
 
 const (
 	russianPackFile   = "russian.sc4pack"
-	russianPackHeader = "SC4RU\x03"
+	russianPackHeader = "SC4RU\x04"
+	russianZIPHeader  = "SC4RU\x03"
+	russianPackLimit  = 64 << 20
 )
 
 const russianLocaleFile = "SimCityLocale.DAT"
@@ -59,14 +65,56 @@ func packRussianAssets(dir, output string) error {
 		return err
 	}
 
-	var data bytes.Buffer
-	archive := zip.NewWriter(&data)
+	work, err := os.MkdirTemp("", "sc4-russian-pack-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(work)
+	rawArchive := filepath.Join(work, "resources.zip")
+	err = publishFile(rawArchive, func(out io.Writer) error {
+		return writeRussianArchive(dir, out)
+	})
+	if err != nil {
+		return err
+	}
+
+	var data []byte
+	if runtime.GOOS == "windows" {
+		sevenZip, err := exec.LookPath("7z.exe")
+		if err != nil {
+			sevenZip = filepath.Join(os.Getenv("ProgramFiles"), "7-Zip", "7z.exe")
+		}
+		compressed := filepath.Join(work, "resources.xz")
+		if output, err := exec.Command(sevenZip, "a", "-txz", "-mx=9", "-md=32m", "-mmt=1", compressed, rawArchive).CombinedOutput(); err != nil {
+			return fmt.Errorf("compress Russian pack: %w: %s", err, output)
+		}
+		data, err = os.ReadFile(compressed)
+		if err != nil {
+			return err
+		}
+	} else {
+		data, err = exec.Command("xz", "-9e", "-T1", "-c", rawArchive).Output()
+		if err != nil {
+			return fmt.Errorf("compress Russian pack: %w", err)
+		}
+	}
+	header := []byte(russianPackHeader)
+	pack := aead.Seal(bytes.Clone(header), nil, data, header)
+	return publishFile(output, func(w io.Writer) error {
+		_, err := w.Write(pack)
+		return err
+	})
+}
+
+func writeRussianArchive(dir string, out io.Writer) error {
+	// Store the files together so XZ can find similarities across fonts.
+	archive := zip.NewWriter(out)
 	for _, name := range russianAssetNames() {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return err
 		}
-		entry, err := archive.Create(name)
+		entry, err := archive.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
 		if err != nil {
 			return err
 		}
@@ -74,16 +122,7 @@ func packRussianAssets(dir, output string) error {
 			return err
 		}
 	}
-	if err := archive.Close(); err != nil {
-		return err
-	}
-
-	header := []byte(russianPackHeader)
-	pack := aead.Seal(bytes.Clone(header), nil, data.Bytes(), header)
-	return publishFile(output, func(w io.Writer) error {
-		_, err := w.Write(pack)
-		return err
-	})
+	return archive.Close()
 }
 
 func unpackRussianAssets(pack, dir string) error {
@@ -91,11 +130,16 @@ func unpackRussianAssets(pack, dir string) error {
 	if err != nil {
 		return err
 	}
-	header := []byte(russianPackHeader)
-	ciphertext, found := bytes.CutPrefix(encoded, header)
-	if !found {
+	if len(encoded) < len(russianPackHeader) {
 		return errors.New("unsupported Russian language pack")
 	}
+	header := encoded[:len(russianPackHeader)]
+	switch string(header) {
+	case russianPackHeader, russianZIPHeader:
+	default:
+		return errors.New("unsupported Russian language pack")
+	}
+	ciphertext := encoded[len(header):]
 	aead, err := russianPackCipher()
 	if err != nil {
 		return err
@@ -103,6 +147,19 @@ func unpackRussianAssets(pack, dir string) error {
 	decoded, err := aead.Open(nil, nil, ciphertext, header)
 	if err != nil {
 		return fmt.Errorf("decrypt Russian language pack: %w", err)
+	}
+	if string(header) == russianPackHeader {
+		reader, err := (xz.ReaderConfig{SingleStream: true}).NewReader(bytes.NewReader(decoded))
+		if err != nil {
+			return err
+		}
+		decoded, err = io.ReadAll(io.LimitReader(reader, russianPackLimit+1))
+		if err != nil {
+			return err
+		}
+		if len(decoded) > russianPackLimit {
+			return errors.New("Russian language pack exceeds the unpacked size limit")
+		}
 	}
 	archive, err := zip.NewReader(bytes.NewReader(decoded), int64(len(decoded)))
 	if err != nil {
