@@ -153,6 +153,9 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		// wrap limit and leave the available width to the stock layout.
 		instruction(0x39880a, "68fa000000", "68f4010000"),
 		instruction(0x3988a9, "68fa000000", "68f4010000"),
+		// Mission progress resizes its panel for active and idle text.
+		instruction(0x3ebcc5, "83c008", "83c010"),
+		instruction(0x3ebce3, "83c008", "83c010"),
 		// Text and viewport-constrained capture presets scale together.
 		instruction(0x3b7af5, "6a0e", "6a1c"),
 		instruction(0x3b6bef, "83ea04", "83ea08"),

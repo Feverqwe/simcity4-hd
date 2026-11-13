@@ -129,10 +129,9 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 		densityControl := strings.Contains(line, "clsid=GZWinBtn ") || strings.Contains(line, "clsid=GZWinBMP ")
 		queryClose := w.group == 0xe74a40b8 && frames == 4 && strings.Contains(line, ` caption="Close" `)
 		edgePanel := strings.Contains(line, "clsid=GZWinBMP ") && strings.Contains(line, "edgeimage=yes")
-		queryWealth := w.group == 0xe74a40b8 && strings.Contains(line, " id=0x00001053 ")
 		// The News ticker stretches its hover border with the stock button painter.
 		newsHover := instance == 0x2a2aed99 && strings.Contains(line, " id=0xca2aedcd ")
-		nativeControl := !densityControl || queryClose || queryWealth || edgePanel || newsHover || budgetLedgerButton(instance, line)
+		nativeControl := !densityControl || queryClose || edgePanel || newsHover || budgetLedgerButton(instance, line)
 		var imageErr error
 		densityImage := false
 		line = layoutImage.ReplaceAllStringFunc(line, func(reference string) string {
@@ -154,7 +153,11 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				// use the stock draw path and the same screen-size source rect.
 				return fmt.Sprintf("image={%08x,%08x}", mayorRatingGroup, source.instance)
 			}
-			project := nativeControl || frames == 4 && nativeButtonAtlas(source)
+			// The Query message filter tiles a half-atlas straight into the
+			// dialog's backing buffer, using the window height as the crop.
+			queryMeter := w.group == 0xe74a40b8 && source.group == catalogFrameGroup &&
+				source.instance >= 0x1441620e && source.instance <= 0x1441621c
+			project := nativeControl || queryMeter || frames == 4 && nativeButtonAtlas(source)
 			atlas := layoutAtlas{source: source, frames: frames, project: project}
 			target, exists := w.variants[atlas]
 			if !exists {
