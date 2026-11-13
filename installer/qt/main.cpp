@@ -361,7 +361,21 @@ public:
         primary->setDefault(true);
         primary->setEnabled(false);
         layout->addStretch();
-        layout->addWidget(actions);
+        auto *footer = new QHBoxLayout;
+        const QUrl projectUrl(config.value("projectUrl").toString());
+        if (projectUrl.isValid() && projectUrl.scheme() == "https" && !projectUrl.host().isEmpty()) {
+            const auto label = config.value("projectLinkText").toString(tr("Project website"));
+            auto *link = new QLabel;
+            link->setTextFormat(Qt::RichText);
+            link->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
+            link->setOpenExternalLinks(true);
+            link->setToolTip(projectUrl.toDisplayString());
+            link->setText(QStringLiteral("<a href=\"%1\">%2</a>")
+                .arg(QString::fromUtf8(projectUrl.toEncoded()).toHtmlEscaped(), label.toHtmlEscaped()));
+            footer->addWidget(link);
+        }
+        footer->addWidget(actions, 1);
+        layout->addLayout(footer);
 
         process.setProcessChannelMode(QProcess::SeparateChannels);
 #ifdef Q_OS_WIN
@@ -424,6 +438,9 @@ public:
         connect(pause, &QPushButton::clicked, this, [this] { stop(); });
         resize(560, preferredHeight(560));
         startBackend("inspect");
+        if (config.value("checkForUpdates").toBool() && projectUrl.isValid() &&
+            projectUrl.scheme() == "https" && !projectUrl.host().isEmpty())
+            checkForUpdates(projectUrl);
     }
 
 protected:
@@ -449,6 +466,40 @@ protected:
     }
 
 private:
+    void checkForUpdates(QUrl projectUrl) {
+        auto *check = new QProcess(this);
+#ifdef Q_OS_WIN
+        check->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+            args->flags |= 0x08000000; // CREATE_NO_WINDOW
+        });
+#endif
+        connect(check, &QProcess::errorOccurred, check, [check](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart)
+                check->deleteLater();
+        });
+        connect(check, &QProcess::finished, this, [this, check, projectUrl](int code, QProcess::ExitStatus exit) {
+            const auto version = QString::fromUtf8(check->readAllStandardOutput()).trimmed();
+            check->deleteLater();
+            if (code != 0 || exit != QProcess::NormalExit || version.isEmpty() || !isVisible())
+                return;
+            auto release = projectUrl;
+            release.setPath(projectUrl.path() + "/releases/tag/" + version);
+            auto *notice = new QMessageBox(QMessageBox::Information, tr("Update available"),
+                tr("%1 Setup %2 is available.").arg(config.value("product").toString(), version), QMessageBox::Cancel, this);
+            notice->setTextFormat(Qt::PlainText);
+            notice->setAttribute(Qt::WA_DeleteOnClose);
+            auto *open = notice->addButton(tr("Open GitHub Releases"), QMessageBox::AcceptRole);
+            connect(open, &QPushButton::clicked, notice, [release] { QDesktopServices::openUrl(release); });
+            notice->setDefaultButton(QMessageBox::Cancel);
+            notice->open();
+        });
+        QStringList args;
+        for (const auto &arg : config.value("backendArgs").toArray())
+            args << arg.toString();
+        args << "check-update";
+        check->start(backend, args);
+    }
+
     int preferredHeight(int windowWidth) const {
         const int preferred = heightForWidth(windowWidth);
         return qMax(minimumSizeHint().height(), preferred >= 0 ? preferred : sizeHint().height());

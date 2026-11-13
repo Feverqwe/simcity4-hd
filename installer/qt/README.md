@@ -25,6 +25,10 @@ object adds a display mode picker with a flag `id` and a `fallback` in
 `WIDTHxHEIGHT` format. The optional `icon` path sets the window icon. Set `completionUrl` and
 `completionAction` to offer a button that opens a URL after successful
 installation or configuration.
+An optional HTTPS `projectUrl` adds a footer link with the label `projectLinkText`.
+With `checkForUpdates` enabled, setup calls the backend's `check-update`
+command in the background. It prints a newer release tag, or nothing if no
+update is available. Setup offers to open that tag on the project's releases page.
 
 The window invokes the backend with `inspect` at startup and `install` on
 request. Set `backendArgs` to prefix those commands (for example,

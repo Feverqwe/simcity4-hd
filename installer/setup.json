@@ -1,5 +1,8 @@
 {
   "product": "SimCity 4 UHD",
+  "projectUrl": "https://github.com/Feverqwe/simcity4-hd",
+  "projectLinkText": "GitHub",
+  "checkForUpdates": true,
   "reconfigure": true,
   "artwork": "screenshot.jpg",
   "readyText": "SimCity 4 Deluxe found. Close the game before installing the HD mod.",

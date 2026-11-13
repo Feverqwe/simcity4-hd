@@ -10,6 +10,13 @@ const usage = "Usage: simcity4-uhd <ui|world|russian-pack|verify|tutorial|patch-
 // Run dispatches the command line and returns the process exit code.
 func Run(args []string, version string) int {
 	if len(args) > 0 && args[0] == "setup" {
+		if len(args) == 2 && args[1] == "check-update" {
+			if err := checkSetupUpdate(version, os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			return 0
+		}
 		return runInstaller(args[1:])
 	}
 	if len(args) == 1 && args[0] == "--version" {
