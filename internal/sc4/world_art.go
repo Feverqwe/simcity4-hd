@@ -31,7 +31,10 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 	path := filepath.Join(cache(a.scale), name)
 	data, err := os.ReadFile(path)
 	if err == nil {
-		if err := validateWorldTexture(original, data, a.scale); err != nil {
+		data, err = readWorldTexture(original, data, a.scale, placement, func() ([]byte, error) {
+			return os.ReadFile(filepath.Join(cache(2), name))
+		})
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		return data, nil
@@ -63,7 +66,10 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 			if readErr != nil {
 				return nil, err
 			}
-			if err := validateWorldTexture(original, existing, texture.scale); err != nil {
+			existing, err = readWorldTexture(original, existing, texture.scale, placement, func() ([]byte, error) {
+				return x2, nil
+			})
+			if err != nil {
 				return nil, fmt.Errorf("%s: %w", target, err)
 			}
 			texture.data = existing
@@ -88,6 +94,53 @@ func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {
 }
 
 func validateWorldTexture(stock, hd []byte, scale int) error {
+	return checkWorldTexture(stock, hd, scale, false)
+}
+
+func readWorldTexture(stock, hd []byte, scale int, placement bool, loadX2 func() ([]byte, error)) ([]byte, error) {
+	err := validateWorldTexture(stock, hd, scale)
+	if err == nil {
+		return hd, nil
+	}
+	if checkWorldTexture(stock, hd, scale, true) != nil {
+		return nil, err
+	}
+
+	// Reuse the cached HD pixels from entries built before zero-offset mip
+	// chains were recognized. The original lower levels come from the DAT.
+	var x2 []byte
+	var framesX2 []fshElement
+	if scale == 4 {
+		x2, err = loadX2()
+		if err != nil {
+			return nil, fmt.Errorf("read cached x2 mip: %w", err)
+		}
+		if err := validateWorldTexture(stock, x2, 2); err != nil {
+			if checkWorldTexture(stock, x2, 2, true) != nil {
+				return nil, err
+			}
+		}
+		framesX2, _ = fshLayout(x2)
+	}
+	cached, _ := fshLayout(hd)
+	return repackBCTexture(stock, scale, placement, func(i int, original fshElement, _ []byte) ([]byte, error) {
+		frame := cached[i]
+		top := frame.start + 16
+		block := bcBlockSize(frame.code)
+		end := top + bcLevelBytes(frame.width, frame.height, block)
+		if original.mipCount() == 0 || scale == 2 {
+			return hd[top:end], nil
+		}
+		if original.stored != 0 || frame.mipCount() == original.mipCount()+2 {
+			return hd[top : end+bcLevelBytes(frame.width/2, frame.height/2, block)], nil
+		}
+		mip := framesX2[i].start + 16
+		pixels := bytes.Clone(hd[top:end])
+		return append(pixels, x2[mip:mip+bcLevelBytes(frame.width/2, frame.height/2, block)]...), nil
+	})
+}
+
+func checkWorldTexture(stock, hd []byte, scale int, legacyZeroOffset bool) error {
 	original, err := fshLayout(stock)
 	if err != nil {
 		return err
@@ -105,6 +158,10 @@ func validateWorldTexture(stock, hd []byte, scale int) error {
 	}
 	for i, e := range original {
 		r := result[i]
+		if legacyZeroOffset && e.stored == 0 && r.offsetY == e.offsetY {
+			e.offsetY &= 0xfff
+			r.offsetY &= 0xfff
+		}
 		mips := e.mipCount()
 		if mips != 0 {
 			mips += added

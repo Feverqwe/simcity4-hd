@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -99,5 +100,70 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				t.Fatalf("x2 cache replay failed (inference calls: %d): %v", calls, err)
 			}
 		})
+	}
+}
+
+func TestWorldZeroOffsetMipChain(t *testing.T) {
+	// This 8×8 BC1 frame has two mip levels and no attachment offset.
+	stock := make([]byte, 32+16+32+16+8)
+	copy(stock, "SHPI")
+	little.PutUint32(stock[4:], uint32(len(stock)))
+	little.PutUint32(stock[8:], 1)
+	copy(stock[12:], "G264test")
+	little.PutUint32(stock[20:], 32)
+	stock[32] = bc1
+	little.PutUint16(stock[36:], 8)
+	little.PutUint16(stock[38:], 8)
+	little.PutUint16(stock[46:], 2<<12)
+	copy(stock[80:], "firstMip")
+	copy(stock[96:], "lastMip!")
+
+	root := t.TempDir()
+	cache := func(scale int) string { return filepath.Join(root, fmt.Sprint(scale)) }
+	art := worldArtwork{ctx: context.Background(), scale: 2, infer: func(data []byte) ([]byte, error) {
+		return encodeRGBA(image.NewNRGBA(image.Rect(0, 0, 32, 32)))
+	}}
+	built := make(map[int][]byte)
+	for _, scale := range []int{2, 4} {
+		art.scale = scale
+		data, err := art.texture(cache, stock, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		built[scale] = data
+		frame := int(little.Uint32(data[20:]))
+		width := 8 * scale
+		cursor := frame + 16
+		for width > 8 {
+			cursor += width * width / 2
+			width /= 2
+		}
+		if data[frame+15]>>4 != byte(2+scale/2) ||
+			!bytes.Equal(data[cursor:], stock[48:]) {
+			t.Fatalf("x%d did not retain the stock levels at their native mip offsets", scale)
+		}
+
+		// Recreate the previous cache payload, with only the largest HD
+		// level before the original mip tail.
+		top := frame + 16
+		end := top + (8*scale)*(8*scale)/2
+		legacy := append(bytes.Clone(data[:end]), stock[80:]...)
+		legacy[frame+15] = stock[47]
+		little.PutUint32(legacy[4:], uint32(len(legacy)))
+		matches, err := filepath.Glob(filepath.Join(cache(scale), "*.fsh"))
+		if err != nil || len(matches) != 1 {
+			t.Fatalf("find x%d cache entry: %v", scale, err)
+		}
+		if err := os.WriteFile(matches[0], legacy, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	art.infer = nil
+	for _, scale := range []int{2, 4} {
+		art.scale = scale
+		data, err := art.texture(cache, stock, false)
+		if err != nil || !bytes.Equal(data, built[scale]) {
+			t.Fatalf("legacy x%d cache did not restore the original mips: %v", scale, err)
+		}
 	}
 }

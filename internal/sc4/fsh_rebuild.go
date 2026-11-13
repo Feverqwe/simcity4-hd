@@ -9,9 +9,6 @@ import (
 )
 
 func (e fshElement) mipCount() int {
-	if e.stored == 0 {
-		return 0
-	}
 	return int(e.offsetY >> 12)
 }
 
@@ -55,7 +52,14 @@ func validateBCElement(data []byte, e fshElement, added int, preservePlacement b
 			chain += size
 			aligned += (size + 15) &^ 15
 		}
-		if e.stored != chain && e.stored != aligned {
+		if e.stored == 0 {
+			// With no attachment offset, the native reader still walks every
+			// mip on 16-byte boundaries within the frame.
+			last := bcLevelBytes(e.width>>mips, e.height>>mips, block)
+			if end < aligned-((last+15)&^15)+last {
+				return 0, errors.New("truncated mip chain")
+			}
+		} else if e.stored != chain && e.stored != aligned {
 			if e.stored != (chain+15)&^15 || len(bytes.Trim(data[e.start+chain:e.start+e.stored], "\x00")) != 0 {
 				return 0, errors.New("unexpected mip chain storage")
 			}
