@@ -14,7 +14,7 @@ var (
 	legacyRoot       = regexp.MustCompile(`(?i)<LEGACY\b(?:[^">]|"[^"]*")*>`)
 	layoutSourceRect = regexp.MustCompile(`\b(imagerect)=\((-?\d+(?:,-?\d+)+)\)`)
 	layoutImage      = regexp.MustCompile(`\bimage=\{([a-fA-F0-9]+),\s*([a-fA-F0-9]+)\}`)
-	layoutGeometry   = regexp.MustCompile(`\b(area|imagerect|gutters|tipoffsets)=\((-?\d+(?:,-?\d+)+)\)`)
+	layoutGeometry   = regexp.MustCompile(`\b(area|imagerect|gutters|tipoffsets|scrollbargutters)=\((-?\d+(?:,-?\d+)+)\)`)
 	layoutFont       = regexp.MustCompile(`\b(?:font|rootfont)=([A-Za-z][A-Za-z0-9_]*)`)
 	advisorRoot      = regexp.MustCompile(`(?m)^(<LEGACY [^\r\n]*? id=0x(?:6a15c767|aa15ef06|2a1d96b1) area=)\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\)`)
 )
@@ -82,6 +82,14 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 		if instance == 0x8a5ab1cd && strings.Contains(line, "clsid=GZWinTreeView ") {
 			line = strings.NewReplacer("icongutter=3", "icongutter=6",
 				"rowheight=16", "rowheight=36", "minmaxboxsize=9", "minmaxboxsize=16").Replace(line)
+		}
+		if instance == 0x0a243d80 && strings.Contains(line, " id=0xaa243f5e ") {
+			line = strings.Replace(line, " buttongutter=1 ", " buttongutter=2 ", 1)
+		}
+		if instance == 0xca53f06e && strings.Contains(line, " id=0x8a550c56 ") {
+			line = strings.NewReplacer(" dcolwidth=100", " dcolwidth=200",
+				" drowheight=20", " drowheight=40",
+				` wingridcol="1,1,200 "`, ` wingridcol="1,1,400 "`).Replace(line)
 		}
 		if instance == 0x4bc906b5 && strings.Contains(line, "image={46a006b0,14015585}") {
 			// Align the Environment, Traffic and Education outlines with

@@ -199,6 +199,8 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		patches = append(patches, instructionPatch{site,
 			little.AppendUint32(nil, catalogFrameGroup), little.AppendUint32(nil, budgetRowArtGroup)})
 	}
+	// Audio Options replaces the track-name column width after loading its layout.
+	patches = append(patches, instruction(0xf4b43, "68ff000000", "68fe010000"))
 
 	// The import dialog loads its folder and city icons directly.
 	for _, site := range []int{0x379135, 0x379182, 0x3791e5} {
@@ -269,6 +271,15 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		hexBytes("ff90800000008b86e40000003945cc7e03ff4dcc3945d47e03ff4dd4"+
 			"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
 	patches = append(patches, graphSeries)
+
+	// The My Sims zodiac combo draws its arrow without an image. Reserve
+	// twice the stock button width, bounded by the current control width.
+	// This path runs on every resize and is separate from image-backed arrows.
+	var zodiacArrow instructionPatch
+	stub, zodiacArrow = appendStub(stub, stubRVA, 0x5cf007,
+		hexBytes("89be20010000"),
+		hexBytes("89be20010000817e105e3f24aa75228b44240c0fbe96340100002bc233d285c07e096a205a39d07d028bd089961c010000"))
+	patches = append(patches, zodiacArrow)
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
 	if textureScale == 4 {
