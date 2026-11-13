@@ -21,6 +21,8 @@ type worldArtwork struct {
 	scale int
 }
 
+const worldCacheVersion = "v2"
+
 func (a worldArtwork) texture(cache func(int) string, original []byte, placement bool) ([]byte, error) {
 	if err := a.ctx.Err(); err != nil {
 		return nil, err
@@ -34,54 +36,43 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 		}
 		return data, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, os.ErrNotExist) || a.infer == nil {
 		return nil, err
 	}
-	if a.scale == 4 && a.infer == nil {
-		return nil, err
-	}
-	if a.scale == 2 {
-		full := a
-		full.scale = 4
-		var cached []byte
-		cached, err = full.texture(cache, original, placement)
-		if err == nil {
-			data, err = projectWorldTexture(original, cached, placement)
-		}
-	} else {
-		data, err = rebuildBCTexture(original, a.scale, placement, a.upscale)
-	}
+
+	x2, x4, err := rebuildBCTextures(original, placement, a.upscale)
 	if err != nil {
 		return nil, err
 	}
-	if err := publishFile(path, func(w io.Writer) error {
-		_, err := w.Write(data)
-		return err
-	}); err != nil {
-		return nil, err
+	// Publish x4 last so that an interrupted build can still use the x2 result.
+	for _, texture := range []struct {
+		scale int
+		data  []byte
+	}{{2, x2}, {4, x4}} {
+		if err := a.ctx.Err(); err != nil {
+			return nil, err
+		}
+		target := filepath.Join(cache(texture.scale), name)
+		err := publishFile(target, func(w io.Writer) error {
+			_, err := w.Write(texture.data)
+			return err
+		})
+		if err != nil {
+			// A previous attempt or a concurrent build may have published this scale.
+			existing, readErr := os.ReadFile(target)
+			if readErr != nil {
+				return nil, err
+			}
+			if err := validateWorldTexture(original, existing, texture.scale); err != nil {
+				return nil, fmt.Errorf("%s: %w", target, err)
+			}
+			texture.data = existing
+		}
+		if texture.scale == a.scale {
+			data = texture.data
+		}
 	}
 	return data, nil
-}
-
-func projectWorldTexture(original, cached []byte, placement bool) ([]byte, error) {
-	if err := validateWorldTexture(original, cached, 4); err != nil {
-		return nil, err
-	}
-	elements, err := fshLayout(cached)
-	if err != nil {
-		return nil, err
-	}
-	return repackBCTexture(original, 2, placement, func(i int, e fshElement, source *image.NRGBA) ([]byte, error) {
-		hd := elements[i]
-		top := hd.start + 16
-		end := top + bcLevelBytes(hd.width, hd.height, bcBlockSize(hd.code))
-		if e.mipCount() != 0 {
-			// The x4 package already carries a compatible x2 mip.
-			return cached[end : end+bcLevelBytes(e.width*2, e.height*2, bcBlockSize(e.code))], nil
-		}
-		art := halfLanczosRGB(decodeBC(cached[top:end], hd.width, hd.height, hd.code))
-		return encodeBC(art, source, 2, e.code)
-	})
 }
 
 func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {

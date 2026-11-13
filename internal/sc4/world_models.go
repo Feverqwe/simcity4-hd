@@ -142,12 +142,18 @@ func modelTextureSupported(data []byte, pass modelPass) (bool, error) {
 	return pass.selection != railMaterials || railPlacement, nil
 }
 
+func modelCache(cache string, scale int) string {
+	return filepath.Join(cache, "models", hatCheckpointSHA, fmt.Sprintf("fsh-x%d-%s", scale, worldCacheVersion))
+}
+
+func (a worldArtwork) modelCache(scale int) string {
+	return modelCache(a.cache, scale)
+}
+
 func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldArtwork, output string, progress buildProgress) (map[resourceID]bool, error) {
 	const batchSize = 128
 	seen := make(map[resourceID]bool)
-	cache := func(scale int) string {
-		return filepath.Join(art.cache, "models", hatCheckpointSHA, fmt.Sprintf("fsh-x%d-v1", scale))
-	}
+	cache := art.modelCache
 	sources := make(map[modelSelection][]resourceID)
 	total := 0
 	for _, pass := range modelPasses {
@@ -183,7 +189,7 @@ func buildModelBatches(stock *gameCatalog, materials *materialReport, art worldA
 		for _, id := range ids {
 			report(processed)
 			processed++
-			if id.instance&0xfffff000 == 0x03100000 {
+			if id.instance&0xfffff000 == stationBase {
 				continue
 			}
 			location, exists := stock.owners[id]

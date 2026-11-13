@@ -2,13 +2,7 @@ package sc4
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"errors"
 	"fmt"
-	"image"
-	"io"
-	"os"
-	"path/filepath"
 )
 
 const (
@@ -29,44 +23,10 @@ func patchStationMaterial(model []byte, source, target uint32) error {
 	return nil
 }
 
-func stationArt(art worldArtwork, id uint32, original []byte, source *image.NRGBA) (*image.NRGBA, error) {
-	cache := filepath.Join(art.cache, "fire-station", hatCheckpointSHA,
-		fmt.Sprintf("%08x-%x-x4.png", id, sha256.Sum256(original)))
-	data, err := os.ReadFile(cache)
-	if err == nil {
-		return decodeRGBA(data)
-	}
-	if !errors.Is(err, os.ErrNotExist) || art.infer == nil {
-		return nil, err
-	}
-	hd, err := art.upscale(source)
-	if err != nil {
-		return nil, err
-	}
-	if hd.Rect.Dx() != 4*source.Rect.Dx() || hd.Rect.Dy() != 4*source.Rect.Dy() {
-		return nil, errors.New("invalid station texture dimensions")
-	}
-	for y := range hd.Rect.Dy() {
-		for x := range hd.Rect.Dx() {
-			hd.Pix[hd.PixOffset(x, y)+3] = source.NRGBAAt(x/4, y/4).A
-		}
-	}
-	data, err = encodeRGBA(hd)
-	if err != nil {
-		return nil, err
-	}
-	if err := publishFile(cache, func(w io.Writer) error {
-		_, err := w.Write(data)
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	return hd, nil
-}
-
 func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress) (day, night []resource, err error) {
 	const zoomLevels, rotations, texturesPerModel = 5, 4, 2
 	report := progress.track(zoomLevels * rotations * texturesPerModel)
+	cache := art.modelCache
 	for zoom := range uint32(zoomLevels) {
 		for rotation := range uint32(rotations) {
 			processed := int(zoom*rotations+rotation) * texturesPerModel
@@ -88,24 +48,7 @@ func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress
 			if err != nil {
 				return nil, nil, err
 			}
-			elements, err := fshLayout(original)
-			if err != nil || len(elements) != 1 {
-				return nil, nil, fmt.Errorf("%s: invalid station texture layout", textureKey)
-			}
-			e := elements[0]
-			size := bcLevelBytes(e.width, e.height, bcBlockSize(bc1))
-			tail := e.start + 16 + size
-			if e.code != bc1 || e.stored != 0 || e.hasPlacement() || e.offsetX != 0 || e.offsetY != 0 ||
-				tail+16 != e.end || !bytes.Equal(original[tail:e.end], make([]byte, 16)) {
-				return nil, nil, fmt.Errorf("%s: unexpected station attachments or metadata", textureKey)
-			}
-			hd, err := rebuildBCTexture(original, art.scale, false, func(source *image.NRGBA) (*image.NRGBA, error) {
-				pixels, err := stationArt(art, dayID, original, source)
-				if err == nil && art.scale == 2 {
-					pixels = halfLanczosRGB(pixels)
-				}
-				return pixels, err
-			})
+			hd, err := art.texture(cache, original, false)
 			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", textureKey, err)
 			}
@@ -113,9 +56,6 @@ func stationEntries(stock *gameCatalog, art worldArtwork, progress buildProgress
 			originalNight, err := readWorldStock(stock, nightKey)
 			if err != nil {
 				return nil, nil, err
-			}
-			cache := func(scale int) string {
-				return filepath.Join(art.cache, "fire-station-night", hatCheckpointSHA, fmt.Sprintf("x%d", scale))
 			}
 			hdNight, err := art.texture(cache, originalNight, false)
 			if err != nil {

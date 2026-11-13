@@ -171,23 +171,17 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 			return err
 		}
 	}
-	worldCache := filepath.Join(cache, "world", hatCheckpointSHA)
 	worldFolders := func(selection worldSelection, scale int) []string {
 		var folders []string
-		categories := filepath.Join(worldCache, fmt.Sprintf("world-fsh-x%d-v1", scale))
+		categories := worldCategoryCache(cache, scale)
 		if selection.network {
-			folders = append(folders, filepath.Join(worldCache, fmt.Sprintf("network-fsh-x%d-v1", scale)))
+			folders = append(folders, networkCache(cache, scale))
 		}
 		if selection.terrain {
 			folders = append(folders, filepath.Join(categories, "terrain"))
 		}
 		if selection.models {
-			folders = append(folders,
-				filepath.Join(cache, "models", hatCheckpointSHA, fmt.Sprintf("fsh-x%d-v1", scale)),
-				filepath.Join(cache, "fire-station-night", hatCheckpointSHA, fmt.Sprintf("x%d", scale)))
-			if scale == 4 {
-				folders = append(folders, filepath.Join(cache, "fire-station", hatCheckpointSHA))
-			}
+			folders = append(folders, modelCache(cache, scale))
 			for _, name := range []string{"lot", "animation", "transport"} {
 				folders = append(folders, filepath.Join(categories, name))
 			}
@@ -206,15 +200,14 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 		if !component.selection.any() {
 			continue
 		}
+		installed := component.installed
 		if options.textureScale == 2 {
-			// x2 keeps both the source x4 textures and the projected x2 textures.
-			if err := reserve(0, component.cached, worldFolders(component.selection, 4)...); err != nil {
-				return err
-			}
-			if err := reserve(component.installed/3, component.cached/3, worldFolders(component.selection, 2)...); err != nil {
-				return err
-			}
-		} else if err := reserve(component.installed, component.cached, worldFolders(component.selection, 4)...); err != nil {
+			installed /= 3
+		}
+		if err := reserve(installed, component.cached, worldFolders(component.selection, 4)...); err != nil {
+			return err
+		}
+		if err := reserve(0, component.cached/3, worldFolders(component.selection, 2)...); err != nil {
 			return err
 		}
 	}

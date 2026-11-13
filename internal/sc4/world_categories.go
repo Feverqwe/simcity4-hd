@@ -67,6 +67,10 @@ func buildCategoryBatches(stock *gameCatalog, art worldArtwork, output string, s
 	return nil
 }
 
+func worldCategoryCache(cache string, scale int) string {
+	return filepath.Join(cache, "world", hatCheckpointSHA, fmt.Sprintf("world-fsh-x%d-%s", scale, worldCacheVersion))
+}
+
 func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, category worldCategory, supplied map[resourceID]bool, progress buildProgress) error {
 	var ids []resourceID
 	for _, id := range stock.order {
@@ -91,7 +95,7 @@ func buildWorldCategory(stock *gameCatalog, art worldArtwork, output string, cat
 		limit = 128 << 20
 	}
 	cache := func(scale int) string {
-		return filepath.Join(art.cache, "world", hatCheckpointSHA, fmt.Sprintf("world-fsh-x%d-v1", scale), category.name, scope)
+		return filepath.Join(worldCategoryCache(art.cache, scale), category.name, scope)
 	}
 	batch, count := 0, 0
 	size := headerSize

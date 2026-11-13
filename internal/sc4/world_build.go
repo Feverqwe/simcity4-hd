@@ -122,23 +122,18 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 	if err := buildCategoryBatches(stock, art, plugins, supplied, selection, progress); err != nil {
 		return err
 	}
-	if err := closeWorker(); err != nil {
-		return err
-	}
 	if selection.models {
-		config.tile, config.overlap = 48, 12
-		art, closeWorker = worldInference(ctx, cache, config)
 		progress.report("Preparing model material overrides")
 		day, night, err := stationEntries(stock, art, progress)
 		if err != nil {
 			return fmt.Errorf("build fire station: %w", err)
 		}
-		if err := closeWorker(); err != nil {
-			return err
-		}
 		if err := write(fmt.Sprintf("model-overrides-x%d.dat", *scale), append(day, night...)); err != nil {
 			return err
 		}
+	}
+	if err := closeWorker(); err != nil {
+		return err
 	}
 	progress.report("Checking world files")
 	paths, err := packagePaths([]string{plugins})

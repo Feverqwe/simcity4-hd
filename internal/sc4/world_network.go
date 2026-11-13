@@ -79,13 +79,17 @@ func networkTextureAtZoom(e fshElement, zoom int) bool {
 		e.centerX == 0 && e.centerY == 0 && e.offsetX&0xfff == 8 && e.offsetY&0xfff == 0
 }
 
+func networkCache(cache string, scale int) string {
+	return filepath.Join(cache, "world", hatCheckpointSHA, fmt.Sprintf("network-fsh-x%d-%s", scale, worldCacheVersion))
+}
+
 func networkEntries(stock *gameCatalog, materials *materialReport, art worldArtwork, progress buildProgress) ([]resource, error) {
 	ids, err := networkFamilyIDs(stock, materials)
 	if err != nil {
 		return nil, err
 	}
 	cache := func(scale int) string {
-		return filepath.Join(art.cache, "world", hatCheckpointSHA, fmt.Sprintf("network-fsh-x%d-v1", scale))
+		return networkCache(art.cache, scale)
 	}
 	entries := make([]resource, 0, len(ids))
 	report := progress.track(len(ids))

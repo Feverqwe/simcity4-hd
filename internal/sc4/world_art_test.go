@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	"path/filepath"
 	"testing"
 )
@@ -32,17 +33,47 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 			root := t.TempDir()
 			cache := func(scale int) string { return filepath.Join(root, fmt.Sprint(scale)) }
 			calls := 0
-			art := worldArtwork{ctx: context.Background(), scale: 2, infer: func(data []byte) ([]byte, error) {
-				calls++
+			infer := func(data []byte) ([]byte, error) {
 				source, err := decodeRGBA(data)
 				if err != nil {
 					return nil, err
 				}
-				return encodeRGBA(image.NewNRGBA(image.Rect(0, 0, source.Rect.Dx()*4, source.Rect.Dy()*4)))
+				pixels := image.NewNRGBA(image.Rect(0, 0, source.Rect.Dx()*4, source.Rect.Dy()*4))
+				for y := range pixels.Rect.Dy() {
+					for x := range pixels.Rect.Dx() {
+						pixels.SetNRGBA(x, y, color.NRGBA{R: uint8(x*29 + y*11), G: uint8(x*7 + y*13), B: uint8(x*3 + y*17), A: 255})
+					}
+				}
+				return encodeRGBA(pixels)
+			}
+			art := worldArtwork{ctx: context.Background(), scale: 2, infer: func(data []byte) ([]byte, error) {
+				calls++
+				return infer(data)
 			}}
 			x2, err := art.texture(cache, stock, false)
 			if err != nil {
 				t.Fatal(err)
+			}
+			// Compare with the x2 level encoded directly from the model's pixels.
+			stockPixels := decodeBC(stock[40:72], 8, 8, bc1)
+			input, err := encodeRGBA(stockPixels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, err := infer(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hd, err := decodeRGBA(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantX2, err := encodeBC(halfLanczosRGB(hd), stockPixels, 2, bc1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(x2[40:40+len(wantX2)], wantX2) {
+				t.Fatal("x2 differs from the result encoded from uncompressed model output")
 			}
 			art.infer = nil
 			art.scale = 4

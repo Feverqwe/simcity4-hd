@@ -64,33 +64,46 @@ func validateBCElement(data []byte, e fshElement, added int, preservePlacement b
 	return top, nil
 }
 
-func rebuildBCTexture(data []byte, scale int, preservePlacement bool,
-	upscale func(*image.NRGBA) (*image.NRGBA, error)) ([]byte, error) {
-	return repackBCTexture(data, scale, preservePlacement, func(_ int, e fshElement, source *image.NRGBA) ([]byte, error) {
+func rebuildBCTextures(data []byte, preservePlacement bool,
+	upscale func(*image.NRGBA) (*image.NRGBA, error)) (x2, x4 []byte, err error) {
+	var levelsX2 [][]byte
+	x4, err = repackBCTexture(data, 4, preservePlacement, func(_ int, e fshElement, payload []byte) ([]byte, error) {
+		source := decodeBC(payload, e.width, e.height, e.code)
 		art, err := upscale(source)
 		if err != nil {
 			return nil, err
 		}
-		if art.Rect.Dx() != e.width*scale || art.Rect.Dy() != e.height*scale {
+		if art.Rect.Dx() != e.width*4 || art.Rect.Dy() != e.height*4 {
 			return nil, errors.New("upscaler returned incorrect texture dimensions")
 		}
-		encoded, err := encodeBC(art, source, scale, e.code)
+		level, err := encodeBC(halfLanczosRGB(art), source, 2, e.code)
 		if err != nil {
 			return nil, err
 		}
-		if e.mipCount() != 0 && scale == 4 {
-			level, err := encodeBC(halfLanczosRGB(art), source, 2, e.code)
-			if err != nil {
-				return nil, err
-			}
+		levelsX2 = append(levelsX2, level)
+		encoded, err := encodeBC(art, source, 4, e.code)
+		if err != nil {
+			return nil, err
+		}
+		if e.mipCount() != 0 {
 			encoded = append(encoded, level...)
 		}
 		return encoded, nil
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	x2, err = repackBCTexture(data, 2, preservePlacement, func(i int, _ fshElement, _ []byte) ([]byte, error) {
+		return levelsX2[i], nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return x2, x4, nil
 }
 
 func repackBCTexture(data []byte, scale int, preservePlacement bool,
-	encode func(int, fshElement, *image.NRGBA) ([]byte, error)) ([]byte, error) {
+	encode func(int, fshElement, []byte) ([]byte, error)) ([]byte, error) {
 	added := 1
 	switch scale {
 	case 2:
@@ -115,8 +128,7 @@ func repackBCTexture(data []byte, scale int, preservePlacement bool,
 		size := sizes[i]
 		payload := e.start + 16
 		end := payload + size
-		source := decodeBC(data[payload:end], e.width, e.height, e.code)
-		encoded, err := encode(i, e, source)
+		encoded, err := encode(i, e, data[payload:end])
 		if err != nil {
 			return nil, err
 		}
