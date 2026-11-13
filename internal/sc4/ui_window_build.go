@@ -45,7 +45,7 @@ type windowGroup struct {
 	ids   []uint32
 }
 
-func (s uiStock) windowGroups() ([]windowGroup, error) {
+func (s uiStock) windowGroups(scaleStartup bool) ([]windowGroup, error) {
 	groups := []windowGroup{
 		{0xe74a40b3, []uint32{0xc973b411}},
 		{0xe74a40b4, []uint32{0x8a5ab1cb, 0x8a5ab1cc, 0x8a5ab1cf}},
@@ -65,7 +65,9 @@ func (s uiStock) windowGroups() ([]windowGroup, error) {
 			0x6a5e73c0, 0x6b704690, 0x8a5ab1ce, 0x8a5ab1d0, 0x8c1a5c9f, 0xabb0120f, 0xabc0ed33, 0xabfaef15,
 			0xca4d0b22, 0xca551016, 0xea89b6c3, 0xea8cc3c6, 0xeaaeec1b, 0x0a41be3e, 0x0a41be3f, 0x6a9455c9,
 			0xaa5e60d1, 0xca539343, 0xca8cbf0f}},
-		{0xe74a40c1, []uint32{0xaaaaf3d1, 0x8aa9aa14}},
+	}
+	if scaleStartup {
+		groups = append(groups, windowGroup{0xe74a40c1, []uint32{0xaaaaf3d1, 0x8aa9aa14}})
 	}
 	queryRoots := []string{" id=0x10000005 ", " id=0x10000006 ", " id=0x4bcb938a "}
 	for id := range s.index {
@@ -92,8 +94,8 @@ func (s uiStock) windowGroups() ([]windowGroup, error) {
 	return groups, nil
 }
 
-func buildWindowEntries(stock uiStock, config string, graphics4K bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
-	groups, err := stock.windowGroups()
+func buildWindowEntries(stock uiStock, config string, graphics4K, scaleStartup bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
+	groups, err := stock.windowGroups(scaleStartup)
 	if err != nil {
 		return nil, "", err
 	}

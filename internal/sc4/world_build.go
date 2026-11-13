@@ -39,6 +39,10 @@ func buildWorldWithProgress(ctx context.Context, args []string, progress buildPr
 	}
 	config.scale = *scale
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
+	game, _, err = gameDataDirectory(game)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
 		if err != nil {
 			return err

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -196,6 +195,13 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		patches = append(patches, instructionPatch{site, little.AppendUint32(nil, catalogFrameGroup),
 			little.AppendUint32(nil, mayorRatingGroup)})
 	}
+	// Trend windows resize at runtime in screen pixels. Keep the negative
+	// window's right edge fixed as the number of arrows changes.
+	patches = append(patches,
+		instruction(0x3e87b1, "6bf607", "6bf60e"),
+		instruction(0x3e89d7, "6bc907", "6bc90e"),
+		instruction(0x3e8a02, "6bc907", "6bc90e"),
+	)
 
 	// Both Audio Options playlist sources use the native checkbox painter.
 	for _, site := range []int{0xf4b84, 0xf4e43} {
@@ -589,13 +595,17 @@ func runUIExecutable(args []string) error {
 		return errors.New("texture scale must be 2 or 4")
 	}
 	if len(args) != 2 {
-		return errors.New("usage: simcity4-uhd patch-ui-exe GAME_DIR OUTPUT.exe")
+		return errors.New("usage: simcity4-uhd patch-ui-exe GAME_DIR_OR_APP OUTPUT")
 	}
-	data, err := os.ReadFile(filepath.Join(args[0], "Apps", "SimCity 4.exe"))
+	_, mac, err := gameDataDirectory(args[0])
 	if err != nil {
 		return err
 	}
-	data, err = patchUIExecutable(data, *scale, uiExecutableOptions{hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap})
+	data, err := os.ReadFile(gameExecutablePath(args[0], mac))
+	if err != nil {
+		return err
+	}
+	data, err = patchGameUIExecutable(data, mac, *scale, uiExecutableOptions{hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap})
 	if err != nil {
 		return err
 	}
@@ -603,4 +613,14 @@ func runUIExecutable(args []string) error {
 		_, err := w.Write(data)
 		return err
 	})
+}
+
+func patchGameUIExecutable(data []byte, mac bool, scale int, options uiExecutableOptions) ([]byte, error) {
+	if !mac {
+		return patchUIExecutable(data, scale, options)
+	}
+	if options != (uiExecutableOptions{}) {
+		return nil, errors.New("optional UI executable patches are unavailable for macOS")
+	}
+	return patchMachOUIExecutable(data, scale)
 }

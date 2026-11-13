@@ -1,8 +1,8 @@
 package sc4
 
 import (
+	"bytes"
 	"crypto/sha256"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -48,7 +48,14 @@ func launchPaths(game, profile string) (exe, directory, userDir string, err erro
 		}
 	}
 	directory = filepath.Join(game, "Apps")
-	exe = filepath.Join(directory, "SimCity 4.exe")
+	data, mac, err := gameDataDirectory(game)
+	if err != nil {
+		return "", "", "", err
+	}
+	if mac {
+		directory = data
+	}
+	exe = gameExecutablePath(game, mac)
 	info, err := os.Stat(exe)
 	if err != nil || !info.Mode().IsRegular() {
 		return "", "", "", errors.New("game executable is missing")
@@ -57,57 +64,60 @@ func launchPaths(game, profile string) (exe, directory, userDir string, err erro
 	return exe, directory, userDir, err
 }
 
-func startIsolatedGame(exe, directory string, args []string) (int, error) {
-	if runtime.GOOS != "windows" {
-		return 0, errors.New("launch requires Windows")
-	}
-	if err := ensureGameNotRunning(); err != nil {
-		return 0, err
+func startIsolatedGame(exe, directory, profile, resolution string, args []string, foreground bool, out io.Writer) error {
+	mac := filepath.Base(exe) == macGameExecutable
+	if err := checkGameLaunch(mac); err != nil {
+		return err
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "SteamAppId=24780", "SteamGameId=24780")
-	if err := command.Start(); err != nil {
-		return 0, err
-	}
-	pid := command.Process.Pid
-	return pid, command.Process.Release()
-}
-
-func ensureGameNotRunning() error {
-	tasklist := exec.Command("tasklist.exe", "/FO", "CSV", "/NH",
-		"/FI", "IMAGENAME eq SimCity 4.exe")
-	configureBackgroundProcess(tasklist)
-	processes, err := tasklist.Output()
-	if err != nil {
-		return fmt.Errorf("check for a running SimCity 4 session: %w", err)
-	}
-	list := csv.NewReader(strings.NewReader(string(processes)))
-	list.FieldsPerRecord = -1
-	rows, err := list.ReadAll()
-	if err != nil {
-		return fmt.Errorf("read Windows process list: %w", err)
-	}
-	for _, row := range rows {
-		if len(row) != 0 && strings.EqualFold(row[0], "SimCity 4.exe") {
-			return errors.New("close the current SimCity 4 session before continuing")
+	if mac {
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			return err
 		}
+		end := macLaunchStub + len(macLaunchCode)
+		if end > len(data) || !bytes.Equal(data[macLaunchStub:end], macLaunchCode) {
+			return errors.New("stage a new macOS copy to enable isolated launch")
+		}
+		modeEnd := macDisplayModeStub + len(macDisplayModeCode)
+		if modeEnd > len(data) || !bytes.Equal(data[macDisplayModeStub:modeEnd], macDisplayModeCode) {
+			return errors.New("stage a new macOS copy to enable custom display modes")
+		}
+		command.Env = append(command.Env, "SC4_UHD_PROFILE="+profile, "SC4_UHD_ARGUMENTS= "+strings.Join(args, " "), "SC4_UHD_RESOLUTION="+resolution)
 	}
-	return nil
+	if foreground {
+		command.Stdout = out
+		command.Stderr = out
+	}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Started SimCity 4 (PID %d)\n", command.Process.Pid)
+	if foreground {
+		return command.Wait()
+	}
+	return command.Process.Release()
 }
 
 func runLaunch(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("launch", flag.ContinueOnError)
 	start := flags.Bool("start", false, "start the game instead of previewing the command")
+	foreground := flags.Bool("foreground", false, "wait for the game and show its output")
 	resolution := flags.String("resolution", defaultResolution, "custom game resolution")
 	savedResolution := flags.Bool("saved-resolution", false, "use the game's saved resolution")
 	showIntro := flags.Bool("show-intro", false, "play the game intro")
 	drawStats := flags.Bool("draw-stats", false, "display renderer statistics")
+	windowed := flags.Bool("windowed", false, "run in a window")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 2 {
 		return errors.New("usage: simcity4-uhd launch [OPTIONS] GAME_COPY PROFILE")
+	}
+	if *foreground && !*start {
+		return errors.New("-foreground requires -start")
 	}
 	explicitResolution := false
 	flags.Visit(func(f *flag.Flag) {
@@ -123,25 +133,50 @@ func runLaunch(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	gameArgs := []string{"-d:DirectX"}
+	mac := filepath.Base(exe) == macGameExecutable
+	if mac && !*savedResolution {
+		width, height, _ := strings.Cut(*resolution, "x")
+		w, _ := strconv.Atoi(width)
+		h, _ := strconv.Atoi(height)
+		if w < 800 || w > 7680 || h < 600 || h > 4320 {
+			return errors.New("macOS resolution must be between 800×600 and 7680×4320")
+		}
+	}
+	var gameArgs []string
+	if !mac {
+		gameArgs = append(gameArgs, "-d:DirectX")
+	}
 	if !*savedResolution {
 		gameArgs = append(gameArgs, "-CustomResolution:enabled", "-r"+*resolution+"x32")
 	}
-	gameArgs = append(gameArgs, "-f", "-Borderless")
+	if *windowed {
+		gameArgs = append(gameArgs, "-w")
+	} else {
+		gameArgs = append(gameArgs, "-f")
+		if !mac {
+			gameArgs = append(gameArgs, "-Borderless")
+		}
+	}
 	if !*showIntro {
 		gameArgs = append(gameArgs, "-intro:off")
 	}
 	if *drawStats {
 		gameArgs = append(gameArgs, "-DrawStats:on")
 	}
-	gameArgs = append(gameArgs, "-CPUcount:1", "-UserDir:"+strings.TrimRight(profile, `\/`)+`\`)
+	userDir := strings.TrimRight(profile, `\/`) + `\`
+	if mac {
+		userDir = strings.TrimRight(profile, "/") + "/"
+	}
+	gameArgs = append(gameArgs, "-CPUcount:1")
+	if !mac {
+		gameArgs = append(gameArgs, "-UserDir:"+userDir)
+	}
 	if *start {
-		pid, err := startIsolatedGame(exe, directory, gameArgs)
-		if err != nil {
-			return err
+		requested := *resolution
+		if *savedResolution {
+			requested = ""
 		}
-		fmt.Fprintf(out, "Started SimCity 4 (PID %d)\n", pid)
-		return nil
+		return startIsolatedGame(exe, directory, userDir, requested, gameArgs, *foreground, out)
 	}
 	file, err := os.Open(exe)
 	if err != nil {

@@ -28,6 +28,7 @@ const (
 	budgetSliderImage     = 0x46a006a7
 	mayorRatingGroup      = 0xe74a40c5
 	mayorRatingImage      = 0x14015549
+	mayorTrendImage       = 0x1401554b
 	regionRatingImage     = 0x14416327
 	newsMarkerGroup       = 0xe74a40c4
 	newsMarkerFirst       = 0x14416250
@@ -74,19 +75,21 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 	return projectUIArtworkWithAlpha(original, data, widths, originalAlpha, false)
 }
 
-func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
-	intro, err := openArchive(filepath.Join(game, "Intro.dat"))
-	if err != nil {
-		return nil, err
-	}
-	defer intro.file.Close()
-	for _, r := range intro.records {
-		if r.id.kind != uiImage || r.id.group != catalogFrameGroup ||
-			(r.id.instance != 0xea7f0eaf && r.id.instance != 0xea7f0eae) {
-			continue
+func buildHUD(game string, stock uiStock, art uiArtwork, scaleStartup bool) ([]resource, error) {
+	if scaleStartup {
+		intro, err := openArchive(filepath.Join(game, "Intro.dat"))
+		if err != nil {
+			return nil, err
 		}
-		if _, exists := stock.index[r.id]; !exists {
-			stock.index[r.id] = resourceLocation{intro, r}
+		defer intro.file.Close()
+		for _, r := range intro.records {
+			if r.id.kind != uiImage || r.id.group != catalogFrameGroup ||
+				(r.id.instance != 0xea7f0eaf && r.id.instance != 0xea7f0eae) {
+				continue
+			}
+			if _, exists := stock.index[r.id]; !exists {
+				stock.index[r.id] = resourceLocation{intro, r}
+			}
 		}
 	}
 	font, err := stock.read(uiFontID)
@@ -97,7 +100,7 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	windows, config, err := buildWindowEntries(stock, config, false, art.scale, art.upscale)
+	windows, config, err := buildWindowEntries(stock, config, false, scaleStartup, art.scale, art.upscale)
 	if err != nil {
 		return nil, err
 	}
@@ -112,12 +115,26 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 	}
 	entries = append(entries, markers...)
 	for _, instance := range []uint32{mayorRatingImage, regionRatingImage} {
-		entry, err := buildRatingImage(stock, art, instance)
+		entry, err := buildRatingImage(stock, instance)
 		if err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
 	}
+	trendID := resourceID{uiImage, catalogFrameGroup, mayorTrendImage}
+	trendTarget := resourceID{uiImage, mayorRatingGroup, mayorTrendImage}
+	if _, exists := stock.index[trendTarget]; exists {
+		return nil, fmt.Errorf("mayor trend image key collision: %s", trendTarget)
+	}
+	trend, err := stock.read(trendID)
+	if err != nil {
+		return nil, err
+	}
+	trend, err = resizeUIExact(trend, 2, 2)
+	if err != nil {
+		return nil, fmt.Errorf("mayor trend arrows: %w", err)
+	}
+	entries = append(entries, resource{trendTarget, trend})
 	// Runtime budget and playlist controls use atlases at screen density.
 	for _, atlas := range []struct {
 		source, target, group uint32
@@ -261,7 +278,7 @@ func buildHUD(game string, stock uiStock, art uiArtwork) ([]resource, error) {
 }
 
 // Keep the original score rows and double the width painted into the HUD.
-func buildRatingImage(stock uiStock, art uiArtwork, instance uint32) (resource, error) {
+func buildRatingImage(stock uiStock, instance uint32) (resource, error) {
 	id := resourceID{uiImage, catalogFrameGroup, instance}
 	target := resourceID{uiImage, mayorRatingGroup, instance}
 	if _, exists := stock.index[target]; exists {
@@ -278,7 +295,7 @@ func buildRatingImage(stock uiStock, art uiArtwork, instance uint32) (resource, 
 	if source.Bounds() != image.Rect(0, 0, 102, 26) {
 		return resource{}, fmt.Errorf("unexpected mayor rating image bounds: %s", source.Bounds())
 	}
-	data, err = art.upscaleScoreRows(id, data)
+	data, err = resizeUIExact(data, 2, 1)
 	return resource{target, data}, err
 }
 
@@ -327,33 +344,6 @@ func resizeUIExact(original []byte, scaleX, scaleY int) ([]byte, error) {
 	for y := range result.Rect.Dy() {
 		for x := range result.Rect.Dx() {
 			result.SetNRGBA(x, y, source.NRGBAAt(x/scaleX, y/scaleY))
-		}
-	}
-	return encodeRGBA(result)
-}
-
-// Score rows represent discrete values. Sample within each inferred row
-// and keep the original transparency and color key at the new width.
-func (a uiArtwork) upscaleScoreRows(id resourceID, original []byte) ([]byte, error) {
-	source, err := decodeRGBA(original)
-	if err != nil {
-		return nil, err
-	}
-	width, height := source.Rect.Dx(), source.Rect.Dy()
-	_, atlas, err := a.atlas("ui-atlases-x4", id, original, []int{width})
-	if err != nil {
-		return nil, err
-	}
-	result := image.NewNRGBA(image.Rect(0, 0, 2*width, height))
-	for y := range height {
-		for x := range result.Rect.Dx() {
-			stockPixel := source.NRGBAAt(x/2, y)
-			pixel := stockPixel
-			if stockPixel != uiColorKey && stockPixel.A != 0 {
-				pixel = atlas.NRGBAAt(2*x+1, 4*y+2)
-				pixel.A = stockPixel.A
-			}
-			result.SetNRGBA(x, y, pixel)
 		}
 	}
 	return encodeRGBA(result)
@@ -493,7 +483,17 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		return errors.New("cursor scale must be 2 or 4")
 	}
 	game, cache, output := flags.Arg(0), flags.Arg(1), flags.Arg(2)
+	bundle := game
+	game, mac, err := gameDataDirectory(bundle)
+	if err != nil {
+		return err
+	}
 	locale := filepath.Join(game, "SimCityLocale.DAT")
+	executableName := "SimCity4-hd.exe"
+	if mac {
+		locale = filepath.Join(game, "English", "SimCityLocale.dat")
+		executableName = macGameExecutable
+	}
 	var russianText []resource
 	var fonts map[string][]byte
 	if *russian != "" {
@@ -517,12 +517,12 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	// Validate the executable fingerprint before doing potentially lengthy inference.
 	if executable == nil {
-		executable, err = os.ReadFile(filepath.Join(game, "Apps", "SimCity 4.exe"))
+		executable, err = os.ReadFile(gameExecutablePath(bundle, mac))
 		if err != nil {
 			return err
 		}
 	}
-	executable, err = patchUIExecutable(executable, *textureScale, uiExecutableOptions{
+	executable, err = patchGameUIExecutable(executable, mac, *textureScale, uiExecutableOptions{
 		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap,
 	})
 	if err != nil {
@@ -574,7 +574,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	stockUI := indexUIStock(stock)
 	progress.report("City interface")
 	art := uiArtwork{cache: cache, scale: *textureScale, infer: infer, processed: progress.count()}
-	hud, err := buildHUD(game, stockUI, art)
+	hud, err := buildHUD(game, stockUI, art, !mac)
 	if err != nil {
 		return fmt.Errorf("build HUD: %w", err)
 	}
@@ -655,10 +655,10 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		return err
 	}
 	progress.report("Packing interface files")
-	return publishUI(output, executable, packages, fonts)
+	return publishUI(output, executableName, executable, packages, fonts)
 }
 
-func publishUI(output string, executable []byte, packages []uiPackage, fonts map[string][]byte) error {
+func publishUI(output, executableName string, executable []byte, packages []uiPackage, fonts map[string][]byte) error {
 	owners := make(map[resourceID]string)
 	for _, p := range packages {
 		for _, entry := range p.entries {
@@ -687,7 +687,7 @@ func publishUI(output string, executable []byte, packages []uiPackage, fonts map
 			return err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(stage, "SimCity4-hd.exe"), executable, 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, executableName), executable, 0755); err != nil {
 		return err
 	}
 

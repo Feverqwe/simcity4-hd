@@ -80,6 +80,38 @@ Preview the launch arguments with `& $builder launch $testGame $profile`. When r
 
 Build the portable Windows utility with the [installer project](../installer/README.md).
 
+## Test on macOS
+
+The experimental macOS build targets the English Steam release of SimCity 4
+Deluxe by Aspyr, version 1.2.1 (185949). It runs under Rosetta on Apple silicon.
+Use the original `.app` as the game path for `world` and `ui`. Those commands
+can also build the DATs on a separate machine using the shared texture cache.
+
+On Mac, run `go build -o simcity4-uhd .` and stage a separate bundle. To use UHD
+world textures with the original interface, run
+`./simcity4-uhd setup stage-world "$stock" "$world" "$copy"`.
+To include the enlarged interface, use
+`./simcity4-uhd setup stage "$stock" "$ui" "$copy" "$world"`.
+Use a fresh `.app` path for the copy and matching texture scales for UI and World.
+For Russian, unpack the translation with a cgo-enabled builder as described
+above and pass `-russian russian-source` when building the UI. The staging
+command installs the matching fonts into the new bundle. Stage a separate
+copy with the default UI build to play in English.
+
+Larger cursors, the doubled region map, and the doubled city loading preview
+are currently Windows options. The macOS build uses Aspyr's OpenGL renderer.
+Aspyr may play its startup movies before applying the launch options.
+
+With Steam open, copy the original `Contents/GameData/Regions` directory
+into a separate profile without spaces in its path and create an empty
+`Plugins` folder alongside it. Use `./simcity4-uhd launch "$copy" "$profile"`
+to preview the launch parameters and add `-start` before the paths to launch.
+Add `-foreground` to keep the session attached and see the game's output.
+Launch the staged copy through this command to use the separate profile.
+For the doubled interface, use `-resolution WIDTHxHEIGHT` to request the
+display's backing resolution. On Retina, compare the menu size at that
+resolution with the original game on the same display.
+
 ## Restore the Steam game
 
 Close the game. If setup patched the executable, restore

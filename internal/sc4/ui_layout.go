@@ -91,6 +91,13 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				" drowheight=20", " drowheight=40",
 				` wingridcol="1,1,200 "`, ` wingridcol="1,1,400 "`).Replace(line)
 		}
+		mayorTrend := strings.Contains(line, "image={46a006b0,1401554b}") &&
+			(strings.Contains(line, " id=0xca5a415e ") || strings.Contains(line, " id=0x6a5a4156 "))
+		if mayorTrend {
+			// The negative trend window is 21 pixels wide in stock. Its
+			// source must end before the positive half of the atlas.
+			line = strings.Replace(line, "imagerect=(0,0,42,9)", "imagerect=(0,0,21,9)", 1)
+		}
 		if instance == 0x4bc906b5 && strings.Contains(line, "image={46a006b0,14015585}") {
 			// Align the Environment, Traffic and Education outlines with
 			// their centered score fills and the contours on the panel.
@@ -146,6 +153,9 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 				return reference
 			}
 			source := resourceID{uiImage, uint32(group), uint32(id)}
+			if mayorTrend && source == (resourceID{uiImage, catalogFrameGroup, mayorTrendImage}) {
+				return fmt.Sprintf("image={%08x,%08x}", mayorRatingGroup, source.instance)
+			}
 			if (instance == 0x898897de || instance == 0x2bc90671) &&
 				strings.Contains(line, " id=0x8a517556 ") &&
 				source == (resourceID{uiImage, catalogFrameGroup, mayorRatingImage}) {
