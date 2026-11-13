@@ -149,6 +149,10 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		// table otherwise inherits the enlarged advisor headline.
 		instruction(0x37ce15, "689e4a0faa", "6804d385ea"),
 		instruction(0x37ce5b, "689e4a0faa", "6804d385ea"),
+		// Tooltip titles and descriptions use doubled fonts. Scale the
+		// wrap limit and leave the available width to the stock layout.
+		instruction(0x39880a, "68fa000000", "68f4010000"),
+		instruction(0x3988a9, "68fa000000", "68f4010000"),
 		// Text and viewport-constrained capture presets scale together.
 		instruction(0x3b7af5, "6a0e", "6a1c"),
 		instruction(0x3b6bef, "83ea04", "83ea08"),
