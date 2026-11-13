@@ -8,7 +8,9 @@ MinGW compiler on PATH. Set `QT_ROOT_DIR` to the Qt kit directory.
 From the root of the public checkout:
 
 ```powershell
-go build -o dist/simcity4-uhd-windows-amd64.exe .
+$env:CGO_ENABLED = '1'
+$env:CC = 'gcc'
+go build -ldflags '-extldflags=-static' -o dist/simcity4-uhd-windows-amd64.exe .
 ./installer/package.ps1 -Backend dist/simcity4-uhd-windows-amd64.exe -Output dist/SimCity4UHD-Setup.exe
 ```
 

@@ -15,9 +15,7 @@ import (
 
 const (
 	russianPackFile   = "russian.sc4pack"
-	russianPackHeader = "SC4RU\x02"
-	// This key ships with Setup so it can read the pack offline.
-	russianPackKey = "historical-key-removed0000000000"
+	russianPackHeader = "SC4RU\x03"
 )
 
 const russianLocaleFile = "SimCityLocale.DAT"
@@ -31,16 +29,16 @@ func russianAssetNames() []string {
 	return names
 }
 
-func russianPackCipher() cipher.AEAD {
-	block, err := aes.NewCipher([]byte(russianPackKey))
+func russianPackCipher() (cipher.AEAD, error) {
+	key, err := russianPackKey()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	aead, err := cipher.NewGCMWithRandomNonce(block)
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return aead
+	return cipher.NewGCMWithRandomNonce(block)
 }
 
 func runRussianPack(args []string) error {
@@ -56,6 +54,11 @@ func runRussianPack(args []string) error {
 }
 
 func packRussianAssets(dir, output string) error {
+	aead, err := russianPackCipher()
+	if err != nil {
+		return err
+	}
+
 	var data bytes.Buffer
 	archive := zip.NewWriter(&data)
 	for _, name := range russianAssetNames() {
@@ -76,7 +79,7 @@ func packRussianAssets(dir, output string) error {
 	}
 
 	header := []byte(russianPackHeader)
-	pack := russianPackCipher().Seal(bytes.Clone(header), nil, data.Bytes(), header)
+	pack := aead.Seal(bytes.Clone(header), nil, data.Bytes(), header)
 	return publishFile(output, func(w io.Writer) error {
 		_, err := w.Write(pack)
 		return err
@@ -93,7 +96,11 @@ func unpackRussianAssets(pack, dir string) error {
 	if !found {
 		return errors.New("unsupported Russian language pack")
 	}
-	decoded, err := russianPackCipher().Open(nil, nil, ciphertext, header)
+	aead, err := russianPackCipher()
+	if err != nil {
+		return err
+	}
+	decoded, err := aead.Open(nil, nil, ciphertext, header)
 	if err != nil {
 		return fmt.Errorf("decrypt Russian language pack: %w", err)
 	}

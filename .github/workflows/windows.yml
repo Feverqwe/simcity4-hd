@@ -16,6 +16,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Prepare Qt and MinGW
+        run: ./installer/ci-qt.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'qt-kit')
+      - name: Configure the C toolchain for the builder
+        shell: pwsh
+        run: |
+          $mingw = Join-Path $env:RUNNER_TEMP 'qt-kit/Tools/mingw1310_64/bin'
+          $mingw >> $env:GITHUB_PATH
+          'CGO_ENABLED=1' >> $env:GITHUB_ENV
+          'CC=gcc' >> $env:GITHUB_ENV
       - name: Check Go sources
         run: |
           go vet ./...
@@ -23,7 +32,6 @@ jobs:
           go test ./...
       - name: Build and check the installer backend
         env:
-          CGO_ENABLED: '0'
           GOOS: windows
           GOARCH: amd64
         run: |
@@ -32,14 +40,12 @@ jobs:
             throw 'Expected a version tag such as v1.2.3 or v1.2.3-rc.1.'
           }
           $backend = Join-Path $env:RUNNER_TEMP 'simcity4-uhd-windows-amd64.exe'
-          go build -trimpath -ldflags "-X main.version=$version" -o $backend .
+          go build -trimpath -ldflags "-X main.version=$version -extldflags=-static" -o $backend .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $actual = & $backend --version
           if ($LASTEXITCODE -ne 0 -or $actual -cne $version) {
             throw "Expected embedded version $version, got $actual."
           }
-      - name: Prepare Qt and MinGW
-        run: ./installer/ci-qt.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'qt-kit')
       - name: Build the self-contained installer
         run: |
           $qt = Join-Path $env:RUNNER_TEMP 'qt-kit'

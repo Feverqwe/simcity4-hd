@@ -48,6 +48,7 @@ Run either command on its own or build both. Each build needs a new output direc
 
 ### Build with Russian text
 
+Use the backend from the portable installer, or [build it with cgo enabled](../installer/README.md).
 Unpack the Russian resources with `simcity4-uhd russian-pack unpack
 installer/resources/russian.sc4pack russian-source`, then add
 `-russian russian-source` to the `ui` command.
