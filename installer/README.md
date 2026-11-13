@@ -12,7 +12,7 @@ go build -o dist/simcity4-uhd-windows-amd64.exe .
 ./installer/package.ps1 -Backend dist/simcity4-uhd-windows-amd64.exe -Output dist/SimCity4UHD-Setup.exe
 ```
 
-The portable installer includes the Russian translation and Cyrillic fonts.
+The portable installer includes the SimCity 4 UHD Russian translation and Cyrillic fonts.
 To package a different translation revision, unpack the bundled language pack,
 replace its locale file, and pass that folder to `package.ps1 -RussianSource`.
 

@@ -21,12 +21,5 @@ https://www.nuget.org/packages/python/3.12.10
 https://pytorch.org/
 https://github.com/the-database/MangaJaNai/releases/tag/3.0.0
 
-The Russian game localization is based on the SimCity 4: Rush Hour Russian
-translation v1.1 from SerGEAnt's Zone Of Games (http://zog.redsys.ru/).
-The original translation author is uncredited. The v1.1 package credits
-Razunter for resource extraction. SimCity 4 UHD incorporates proofreading
-and corrections. The original translation is distributed free of charge
-and its terms prohibit commercial use.
-
 The Russian option uses modified open fonts. Their sources, copyright notices
 and SIL Open Font License terms are in FONT-LICENSES.txt.
