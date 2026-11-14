@@ -25,3 +25,5 @@ To change a mod installed through setup, close the game, reopen setup, and selec
 Setup shows installation steps and errors below the progress bar. Each session is saved under `%LOCALAPPDATA%/SimCity4HD/Logs`.
 
 See [Advanced setup](docs/advanced.md) for building textures from source and testing in a separate profile.
+
+[Discord](https://discord.gg/PHmyWuBHj)
