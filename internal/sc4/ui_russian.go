@@ -85,7 +85,7 @@ func russianBudgetTooltips(hud []resource) {
 
 func encodeLocaleText(text string) []byte {
 	units := utf16.Encode([]rune(text))
-	data := little.AppendUint32(nil, 0x10000000|uint32(len(units)))
+	data := little.AppendUint32(nil, unicodeLocaleText|uint32(len(units)))
 	for _, unit := range units {
 		data = little.AppendUint16(data, unit)
 	}
@@ -219,10 +219,17 @@ func russianUI(localePath string) ([]resource, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Russian locale %s: %w", r.id, err)
 		}
-		if len(data) < 4 || len(data)%2 != 0 {
-			return nil, fmt.Errorf("Russian locale %s: invalid text resource", r.id)
+		// This authoring example is stored as plain text in the source
+		// translation archive, under an LTEXT key.
+		if r.id == (resourceID{0x2026960b, 0x55555555, 0xaa41380e}) &&
+			bytes.HasPrefix(data, []byte("This is a sample string that has both an instance")) {
+			continue
 		}
-		for i := 4; !hasCyrillic && i < len(data); i += 2 {
+		end, unicode, err := localeTextExtent(data)
+		if err != nil {
+			return nil, fmt.Errorf("Russian locale %s: %w", r.id, err)
+		}
+		for i := 4; unicode && !hasCyrillic && i < end; i += 2 {
 			unit := little.Uint16(data[i:])
 			hasCyrillic = unit >= 0x0410 && unit <= 0x044f
 		}
@@ -261,22 +268,42 @@ func encodeRussianFont(font []byte) []byte {
 	return mxf
 }
 
+const unicodeLocaleText = 0x10000000
+
+func localeTextExtent(data []byte) (end int, unicode bool, err error) {
+	if len(data) < 4 {
+		return 0, false, fmt.Errorf("text resource is missing its length")
+	}
+	header := little.Uint32(data)
+	count := int(header & 0x00ffffff)
+	switch header & 0xff000000 {
+	case 0:
+	case unicodeLocaleText:
+		count *= 2
+		unicode = true
+	default:
+		return 0, false, fmt.Errorf("unsupported text resource encoding %#x", header>>24)
+	}
+	end = 4 + count
+	if end > len(data) {
+		return 0, false, fmt.Errorf("text length exceeds the resource size")
+	}
+	return end, unicode, nil
+}
+
 // The original locale stores its counted UTF-16 text without a terminator.
 // Some translations count the terminator and also leave bytes after the text.
 func normalizeRussianText(data []byte) ([]byte, error) {
-	const unicodeText = 0x10000000
-	const lengthMask = 0x00ffffff
-	header := little.Uint32(data)
-	if header&^lengthMask != unicodeText {
-		return data, nil
+	end, unicode, err := localeTextExtent(data)
+	if err != nil {
+		return nil, err
 	}
-	end := 4 + 2*int(header&lengthMask)
-	if end > len(data) {
-		return nil, fmt.Errorf("Russian text length exceeds the resource size")
+	if !unicode {
+		return data, nil
 	}
 	for end > 4 && little.Uint16(data[end-2:]) == 0 {
 		end -= 2
 	}
-	little.PutUint32(data, unicodeText|uint32((end-4)/2))
+	little.PutUint32(data, unicodeLocaleText|uint32((end-4)/2))
 	return data[:end], nil
 }
