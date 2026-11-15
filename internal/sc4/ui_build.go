@@ -408,18 +408,11 @@ func buildNewsMarkers(stock uiStock, art uiArtwork) ([]resource, error) {
 	return entries, nil
 }
 
-func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {
+func disasterEntries(stock uiStock, art uiArtwork, mac bool) ([]resource, error) {
 	id := resourceID{uiImage, catalogFrameGroup, disasterBackground}
 	first, err := stock.read(id)
 	if err != nil {
 		return nil, err
-	}
-	second, err := stock.read(resourceID{uiImage, mySimPortraitGroup, disasterBackground})
-	if err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(first, second) {
-		return nil, errors.New("stock Disasters background copies differ")
 	}
 	// Keep a screen-density fallback for the runtime compositor.
 	data, err := art.upscale(layoutAtlas{source: id, frames: 1, project: true}, first)
@@ -428,7 +421,17 @@ func disasterEntries(stock uiStock, art uiArtwork) ([]resource, error) {
 	}
 	entries := []resource{
 		{resourceID{uiImage, catalogFrameGroup, disasterBackgroundHD}, data},
-		{resourceID{uiImage, mySimPortraitGroup, disasterBackgroundHD}, data},
+	}
+	// The Windows loader requests the background from catalogFrameGroup.
+	if mac {
+		second, err := stock.read(resourceID{uiImage, mySimPortraitGroup, disasterBackground})
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(first, second) {
+			return nil, errors.New("stock Disasters background copies differ")
+		}
+		entries = append(entries, resource{resourceID{uiImage, mySimPortraitGroup, disasterBackgroundHD}, data})
 	}
 	if art.scale == 4 {
 		target := resourceID{uiImage, catalogFrameGroup, disasterBackgroundX4}
@@ -617,7 +620,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	progress.report("Disasters background and cursors")
 	art.processed = progress.count()
-	disasters, err := disasterEntries(stockUI, art)
+	disasters, err := disasterEntries(stockUI, art, mac)
 	if err != nil {
 		return fmt.Errorf("build Disasters background: %w", err)
 	}
