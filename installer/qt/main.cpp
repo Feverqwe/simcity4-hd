@@ -358,7 +358,6 @@ public:
         exportTextures = new QPushButton(tr("Export textures…"));
         exportTextures->setAutoDefault(false);
         exportTextures->hide();
-        layout->addWidget(exportTextures, 0, Qt::AlignLeft);
         connect(exportTextures, &QPushButton::clicked, this, [this] { chooseTextureArchive(true); });
         bar = new QProgressBar;
         bar->setAccessibleName(tr("Installation progress"));
@@ -478,45 +477,6 @@ public:
                 primary->setText(shown ? tr("Apply changes") : tr("Configure"));
         });
 
-        auto *actions = new QDialogButtonBox;
-        importTextures = new QPushButton(tr("Import textures…"));
-        importTextures->setAutoDefault(false);
-        importTextures->hide();
-        actions->addButton(importTextures, QDialogButtonBox::ActionRole);
-        connect(importTextures, &QPushButton::clicked, this, [this] { chooseTextureArchive(false); });
-        removeInstalled = new QPushButton(tr("Remove mod…"));
-        actions->addButton(removeInstalled, QDialogButtonBox::ActionRole);
-        removeInstalled->hide();
-        removeInstalled->setAutoDefault(false);
-        connect(removeInstalled, &QPushButton::clicked, this, [this] {
-            const auto answer = QMessageBox::question(this, tr("Remove %1").arg(config.value("product").toString()),
-                tr("Remove the installed mod and restore the original game executable? The texture cache will be kept."),
-                QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
-            if (answer == QMessageBox::Yes)
-                startOperation("remove");
-        });
-        closeInstalled = actions->addButton(QDialogButtonBox::Close);
-        closeInstalled->hide();
-        closeInstalled->setAutoDefault(false);
-        connect(closeInstalled, &QPushButton::clicked, this, [this] { close(); });
-        const QUrl completionUrl(config.value("completionUrl").toString());
-        play = new QPushButton(config.value("completionAction").toString(tr("Open")));
-        actions->addButton(play, QDialogButtonBox::ActionRole);
-        play->hide();
-        play->setAutoDefault(false);
-        connect(play, &QPushButton::clicked, this, [this, completionUrl] {
-            if (!QDesktopServices::openUrl(completionUrl))
-                QMessageBox::warning(this, tr("Could not launch"), tr("Could not open %1.")
-                    .arg(config.value("product").toString()));
-        });
-        pause = new QPushButton(tr("Pause"));
-        pause->hide();
-        actions->addButton(pause, QDialogButtonBox::RejectRole);
-        pause->setAutoDefault(false);
-        primary = new QPushButton(tr("Install"));
-        actions->addButton(primary, QDialogButtonBox::AcceptRole);
-        primary->setDefault(true);
-        primary->setEnabled(false);
         layout->addStretch();
         auto *footer = new QHBoxLayout;
         const QUrl projectUrl(config.value("projectUrl").toString());
@@ -531,7 +491,48 @@ public:
                 .arg(QString::fromUtf8(projectUrl.toEncoded()).toHtmlEscaped(), label.toHtmlEscaped()));
             footer->addWidget(link);
         }
-        footer->addWidget(actions, 1);
+        footer->addWidget(exportTextures);
+        moreActions = new QPushButton(tr("More actions"));
+        moreActions->setAutoDefault(false);
+        moreActions->hide();
+        auto *actions = new QMenu(moreActions);
+        moreActions->setMenu(actions);
+        importTextures = actions->addAction(tr("Import textures…"));
+        connect(importTextures, &QAction::triggered, this, [this] { chooseTextureArchive(false); });
+        removeInstalled = actions->addAction(tr("Remove mod…"));
+        footer->addWidget(moreActions);
+        connect(removeInstalled, &QAction::triggered, this, [this] {
+            const auto answer = QMessageBox::question(this, tr("Remove %1").arg(config.value("product").toString()),
+                tr("Remove the installed mod and restore the original game executable? The texture cache will be kept."),
+                QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+            if (answer == QMessageBox::Yes)
+                startOperation("remove");
+        });
+
+        footer->addStretch();
+        closeInstalled = new QPushButton(tr("Close"));
+        closeInstalled->hide();
+        closeInstalled->setAutoDefault(false);
+        footer->addWidget(closeInstalled);
+        connect(closeInstalled, &QPushButton::clicked, this, [this] { close(); });
+        primary = new QPushButton(tr("Install"));
+        footer->addWidget(primary);
+        pause = new QPushButton(tr("Pause"));
+        pause->hide();
+        footer->addWidget(pause);
+        pause->setAutoDefault(false);
+        const QUrl completionUrl(config.value("completionUrl").toString());
+        play = new QPushButton(config.value("completionAction").toString(tr("Open")));
+        footer->addWidget(play);
+        play->hide();
+        play->setAutoDefault(false);
+        connect(play, &QPushButton::clicked, this, [this, completionUrl] {
+            if (!QDesktopServices::openUrl(completionUrl))
+                QMessageBox::warning(this, tr("Could not launch"), tr("Could not open %1.")
+                    .arg(config.value("product").toString()));
+        });
+        primary->setDefault(true);
+        primary->setEnabled(false);
         layout->addLayout(footer);
 
         process.setProcessChannelMode(QProcess::SeparateChannels);
@@ -808,9 +809,8 @@ private:
         primary->setEnabled(false);
         closeInstalled->hide();
         play->hide();
-        importTextures->hide();
+        moreActions->hide();
         exportTextures->hide();
-        removeInstalled->hide();
         startBackend("inspect");
     }
 
@@ -887,8 +887,7 @@ private:
                         reconfigurable ? tr("Checking the installed mod…") : tr("Checking files…"));
         primary->hide();
         closeInstalled->hide();
-        removeInstalled->hide();
-        importTextures->hide();
+        moreActions->hide();
         exportTextures->hide();
         pause->setVisible(!removing);
         pause->setEnabled(true);
@@ -1153,20 +1152,20 @@ private:
         primary->setEnabled(true);
         play->setVisible(completed && installed && !config.value("completionUrl").toString().isEmpty());
         const bool archives = config.value("textureArchives").toBool();
-        importTextures->setVisible(archives && !completed && !paused);
+        importTextures->setVisible(archives);
+        removeInstalled->setVisible(reconfigurable);
+        moreActions->setVisible(!completed && !paused && (archives || reconfigurable));
         exportTextures->setVisible(archives && completed && installed);
         if (completed) {
             counter->hide();
             advanced->setChecked(false);
             advanced->hide();
-            removeInstalled->hide();
             closeInstalled->show();
             primary->setText(tr("Back to start"));
         } else if (reconfigurable) {
             counter->hide();
             advanced->setVisible(!fieldToFix.isEmpty());
             closeInstalled->show();
-            removeInstalled->setVisible(!paused);
             if (!paused) {
                 if (!reported)
                     status->setText(config.value("installedText").toString(tr("Installation complete.")));
@@ -1193,8 +1192,9 @@ private:
             if (reported && !details->document()->isEmpty())
                 details->show();
         }
-        primary->setDefault(true);
-        primary->setFocus();
+        auto *defaultAction = play->isVisibleTo(this) ? play : primary;
+        defaultAction->setDefault(true);
+        defaultAction->setFocus();
         if (closeAfterStop)
             close();
         else if (retryRequested)
@@ -1226,7 +1226,8 @@ private:
     QList<Choice> choices;
     QString resolutionFlag;
     QComboBox *resolution = nullptr;
-    QPushButton *primary, *pause, *closeInstalled, *removeInstalled, *play, *importTextures, *exportTextures;
+    QPushButton *primary, *pause, *closeInstalled, *play, *moreActions, *exportTextures;
+    QAction *importTextures, *removeInstalled;
 };
 
 } // namespace
