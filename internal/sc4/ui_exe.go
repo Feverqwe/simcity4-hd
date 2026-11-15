@@ -390,12 +390,8 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	if options.russianBudgetTips {
 		stub, patches = appendBudgetTooltipPatch(stub, patches, stubRVA)
 	}
-	// Both profiles load the original gauge atlases from the driving exemplar
-	// at runtime. Scale the destination while preserving the selected frame.
-	var gauges instructionPatch
-	stub, gauges = appendStub(stub, stubRVA, 0x3628c4,
-		hexBytes("897c241c895c2420"), hexBytes("8d143f8954241c8d141b89542420"))
-	patches = append(patches, gauges)
+	stub, patches = appendRuntimeArtPatches(stub, patches, stubRVA)
+	stub, patches = appendDriveGaugePatches(stub, patches, stubRVA)
 
 	// The HTML control creates its vertical scrollbar at runtime. Resize
 	// the child rectangle and reserve matching space in the text viewport.

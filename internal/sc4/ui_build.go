@@ -580,6 +580,19 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	if err != nil {
 		return fmt.Errorf("build HUD: %w", err)
 	}
+	if !mac {
+		progress.report("Driving gauges")
+		gauges, err := driveGaugeEntries(stockUI, art)
+		if err != nil {
+			return err
+		}
+		chrome, err := runtimeChromeEntries(stockUI, art)
+		if err != nil {
+			return err
+		}
+		hud = append(hud, gauges...)
+		hud = append(hud, chrome...)
+	}
 	// The runtime catalog shares native copy routines with other windows.
 	// Project its x4 art to the doubled frame geometry those routines expect.
 	progress.report("Building catalog")
