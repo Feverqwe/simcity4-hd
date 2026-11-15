@@ -647,7 +647,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 				return fmt.Errorf("Russian locale %s: %w", entry.id, err)
 			}
 		}
-		captions, err := russianButtonCaptionEntries(hud)
+		captions, err := russianButtonCaptionEntries(hud, !mac)
 		if err != nil {
 			return err
 		}

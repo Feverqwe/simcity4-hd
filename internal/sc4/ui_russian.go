@@ -86,8 +86,8 @@ func russianCaption(text string) []byte {
 var buttonCaptionReference = regexp.MustCompile(`\bcaptionres=\{([[:xdigit:]]{8}),[ \t]*([[:xdigit:]]{8})\}`)
 
 // Some menu labels share localization keys with headings and graph titles.
-// Use a separate Russian resource for the short caption on the button.
-func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
+// Keep the full localization key available to the button's native tooltip.
+func russianButtonCaptionEntries(hud []resource, windows bool) ([]resource, error) {
 	var captions map[string]string
 	if err := json.Unmarshal(russianButtonCaptionData, &captions); err != nil {
 		return nil, fmt.Errorf("parse Russian button captions: %w", err)
@@ -119,7 +119,15 @@ func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
 				entries = append(entries, resource{id, russianCaption(caption)})
 				added[id] = true
 			}
-			lines[j] = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
+			line = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
+			if windows && strings.Contains(line, " tips=no ") && !strings.Contains(line, " tipres=") &&
+				strings.Contains(line, ` tiptext="" `) {
+				line = strings.Replace(line, " tips=no ", " tips=yes ", 1)
+				line = strings.Replace(line, " tipsdelay=no ", " tipsdelay=yes ", 1)
+				tip := fmt.Sprintf(` tiptext="" tipres={%s,%s} `, ref[1], ref[2])
+				line = strings.Replace(line, ` tiptext="" `, tip, 1)
+			}
+			lines[j] = line
 			changed = true
 		}
 		if changed {
