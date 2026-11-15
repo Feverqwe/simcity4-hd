@@ -79,6 +79,13 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 			if !bytes.Equal(x2[40:40+len(wantX2)], wantX2) {
 				t.Fatal("x2 differs from the result encoded from uncompressed model output")
 			}
+			// Repeating a build at the same scale should reuse its FSH without
+			// processing the source pixels or looking up the portable PNG.
+			art.infer = nil
+			warm, err := art.texture(cache, stock, false)
+			if err != nil || !bytes.Equal(warm, x2) {
+				t.Fatalf("same-scale rebuild did not reuse its compiled texture: %v", err)
+			}
 			archive := filepath.Join(t.TempDir(), "textures.zip")
 			if err := exportTextureArchive(ctx, root, archive, textureArchiveProgress{}); err != nil {
 				t.Fatal(err)

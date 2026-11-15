@@ -202,22 +202,26 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 			continue
 		}
 		installed := component.installed
+		cached := component.cached
 		if options.textureScale == 2 {
 			installed /= 3
+			cached /= 3
 		}
-		if err := reserve(installed, component.cached, worldFolders(component.selection, 4)...); err != nil {
-			return err
-		}
-		if err := reserve(0, component.cached/3, worldFolders(component.selection, 2)...); err != nil {
+		if err := reserve(installed, cached, worldFolders(component.selection, options.textureScale)...); err != nil {
 			return err
 		}
 	}
-	if options.world.any() {
+	if imageBytes := cacheBytes - interfaceCacheBytes; imageBytes > 0 {
+		// Missing FSH may also need full-resolution inference output. Count
+		// existing PNGs against that estimate, not against the FSH we will write.
+		if options.textureScale == 2 {
+			imageBytes *= 3
+		}
 		images, err := setupDirSize(ctx, filepath.Join(cache, inferenceCacheFolder), true)
 		if err != nil {
 			return fmt.Errorf("measure upscaled image cache: %w", err)
 		}
-		cacheBytes -= min(images, cacheBytes-interfaceCacheBytes)
+		cacheBytes += imageBytes - min(images, imageBytes)
 	}
 	return checkVolumeSpace([]spaceRequest{
 		{game, "the HD installation", installBytes},

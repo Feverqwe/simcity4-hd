@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -28,9 +29,8 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 	}
 	name := fmt.Sprintf("%x.fsh", sha256.Sum256(original))
 	path := filepath.Join(cache(a.scale), name)
-	data, err := os.ReadFile(path)
-	if err == nil {
-		data, err = readWorldTexture(original, data, a.scale, placement, func() ([]byte, error) {
+	validate := func(data []byte) ([]byte, error) {
+		data, err := readWorldTexture(original, data, a.scale, placement, func() ([]byte, error) {
 			return os.ReadFile(filepath.Join(cache(2), name))
 		})
 		if err != nil {
@@ -38,13 +38,29 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 		}
 		return data, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return validate(data)
+	}
+	if !errors.Is(err, os.ErrNotExist) || a.infer == nil {
+		return data, err
+	}
+	data, err = rebuildBCTexture(original, a.scale, placement, a.upscale)
+	if err != nil {
 		return nil, err
 	}
-	if a.infer == nil {
+	err = publishFile(path, func(w io.Writer) error {
+		_, err := io.Copy(w, contextReader{a.ctx, bytes.NewReader(data)})
+		return err
+	})
+	if err != nil {
+		// A concurrent builder may have completed the same texture.
+		if existing, readErr := os.ReadFile(path); readErr == nil {
+			return validate(existing)
+		}
 		return nil, err
 	}
-	return rebuildBCTexture(original, a.scale, placement, a.upscale)
+	return data, nil
 }
 
 func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {
