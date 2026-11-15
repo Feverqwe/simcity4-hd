@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 	"unsafe"
 )
@@ -490,8 +491,10 @@ func setupWorldArgs(scale int, game, cache, output string) []string {
 }
 
 func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {
+	const updateInterval = 250 * time.Millisecond
 	var label string
 	var current installEvent
+	var lastSent time.Time
 	emit := deps.emit
 	return buildProgress{
 		prepare: func() (string, string, error) {
@@ -500,6 +503,7 @@ func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {
 				emit(installEvent{Type: "step", Phase: *phase, Text: label})
 				if current.Type != "" {
 					emit(current)
+					lastSent = time.Now()
 				}
 			}
 			return python, weights, err
@@ -507,13 +511,16 @@ func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {
 		step: func(step string) {
 			label = step
 			current = installEvent{}
+			lastSent = time.Time{}
 			emit(installEvent{Type: "step", Phase: *phase, Text: step})
 		},
 		resources: func(done, total int) {
 			previous := current
 			current = installEvent{Type: "count", Phase: *phase, Value: done, Total: total}
-			if total == 0 || done == 0 || done == total || previous.Total != total || done*100/total != previous.Value*100/total {
+			now := time.Now()
+			if done <= 1 || total > 0 && done == total || previous.Total != total || now.Sub(lastSent) >= updateInterval {
 				emit(current)
+				lastSent = now
 			}
 		},
 	}
