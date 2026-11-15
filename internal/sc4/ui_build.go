@@ -642,6 +642,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 				return fmt.Errorf("Russian locale %s: %w", entry.id, err)
 			}
 		}
+		captions, err := russianButtonCaptionEntries(hud)
+		if err != nil {
+			return err
+		}
+		russianText = append(russianText, captions...)
 		packages = append(packages, uiPackage{russianTextPackage, russianText})
 	}
 	if len(cursors) != 0 {

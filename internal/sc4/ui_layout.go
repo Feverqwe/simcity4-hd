@@ -266,7 +266,16 @@ func fitWindowCaptions(instance uint32, layout string) string {
 		return strings.NewReplacer(
 			"area=(7,5,455,28)", "area=(7,5,455,31)",
 			"id=0x4a2871e1 area=(0,0,448,22)", "id=0x4a2871e1 area=(0,0,448,26)",
+			"id=0x00004012 area=(170,55,336,73)", "id=0x00004012 area=(170,55,339,73)",
 		).Replace(layout)
+	case 0xea2871aa: // Graph picker
+		return strings.Replace(layout, "id=0x00004012 area=(170,55,336,73)", "id=0x00004012 area=(170,55,339,73)", 1)
+	case 0x2bb16d50: // Free Drive between Accept and Cancel
+		return strings.Replace(layout, "id=0x00000007 area=(151,0,281,30)", "id=0x00000007 area=(138,0,294,30)", 1)
+	case 0x8a5ab1cd: // Import City
+		return strings.Replace(layout, "id=0x8a5b9959 area=(0,0,145,30)", "id=0x8a5b9959 area=(0,0,161,30)", 1)
+	case 0x2a41436c: // Obliterate City
+		return strings.Replace(layout, "id=0x6a41bbb5 area=(0,0,150,30)", "id=0x6a41bbb5 area=(0,0,164,30)", 1)
 	default:
 		return layout
 	}

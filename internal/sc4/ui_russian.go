@@ -2,10 +2,15 @@ package sc4
 
 import (
 	"bytes"
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"unicode/utf16"
 )
 
 var russianFontFiles = [...]string{
@@ -35,6 +40,62 @@ func readRussianFonts(dir string) (map[string][]byte, error) {
 }
 
 const russianTextPackage = "russian-text.dat"
+
+const russianButtonCaptionGroup = 0xe74a40ca
+
+//go:embed localization/ru/button-captions.json
+var russianButtonCaptionData []byte
+
+var buttonCaptionReference = regexp.MustCompile(`\bcaptionres=\{([[:xdigit:]]{8}),[ \t]*([[:xdigit:]]{8})\}`)
+
+// Some menu labels share localization keys with headings and graph titles.
+// Use a separate Russian resource for the short caption on the button.
+func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
+	var captions map[string]string
+	if err := json.Unmarshal(russianButtonCaptionData, &captions); err != nil {
+		return nil, fmt.Errorf("parse Russian button captions: %w", err)
+	}
+	var entries []resource
+	added := make(map[resourceID]bool)
+	for i := range hud {
+		layout := &hud[i]
+		if layout.id != layoutID(layout.id.instance) {
+			continue
+		}
+		lines := strings.SplitAfter(string(layout.data), "\n")
+		changed := false
+		for j, line := range lines {
+			if !strings.Contains(line, "clsid=GZWinBtn ") || !strings.Contains(line, "showcaption=yes") {
+				continue
+			}
+			ref := buttonCaptionReference.FindStringSubmatch(line)
+			if ref == nil {
+				continue
+			}
+			caption, ok := captions[strings.ToLower(ref[1]+","+ref[2])]
+			if !ok {
+				continue
+			}
+			instance, _ := strconv.ParseUint(ref[2], 16, 32)
+			id := resourceID{0x2026960b, russianButtonCaptionGroup, uint32(instance)}
+			if !added[id] {
+				units := utf16.Encode([]rune(caption))
+				data := little.AppendUint32(nil, 0x10000000|uint32(len(units)))
+				for _, unit := range units {
+					data = little.AppendUint16(data, unit)
+				}
+				entries = append(entries, resource{id, data})
+				added[id] = true
+			}
+			lines[j] = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
+			changed = true
+		}
+		if changed {
+			layout.data = []byte(strings.Join(lines, ""))
+		}
+	}
+	return entries, nil
+}
 
 func russianUI(localePath string) ([]resource, error) {
 	locale, err := openArchive(localePath)
