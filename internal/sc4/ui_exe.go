@@ -350,18 +350,19 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 			"ff75fc8d55c852ff75088d8e2c0200008b01ff9080000000"))
 	patches = append(patches, graphSeries)
 
-	// The My Sims zodiac combo draws its arrow without an image. Reserve
+	// The My Sims zodiac and display-resolution combos draw their arrows without images. Reserve
 	// twice the stock button width, bounded by the current control width.
 	// This path runs on every resize and is separate from image-backed arrows.
 	var zodiacArrow instructionPatch
 	stub, zodiacArrow = appendStub(stub, stubRVA, 0x5cf007,
 		hexBytes("89be20010000"),
-		hexBytes("89be20010000817e105e3f24aa75228b44240c0fbe96340100002bc233d285c07e096a205a39d07d028bd089961c010000"))
+		hexBytes("89be20010000817e105e3f24aa7412817e1001444ae77409817e1004444ae775228b44240c0fbe96340100002bc233d285c07e096a205a39d07d028bd089961c010000"))
 	patches = append(patches, zodiacArrow)
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
 	stub, patches = appendEditorDecimalPatches(stub, patches, stubRVA)
 	stub, patches = appendKeyboardHelpPatch(stub, patches, stubRVA)
+	stub, patches = appendGraphicsResolutionPatches(stub, patches, stubRVA)
 	if options.russianBudgetTips {
 		stub, patches = appendBudgetTooltipPatch(stub, patches, stubRVA)
 	}

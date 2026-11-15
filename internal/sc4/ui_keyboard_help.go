@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	keyConfigType  = 0xa2e3d533
-	keyHelpGroup   = 0xe74a40da
-	keyHelpTitle   = 1
-	keyHelpContent = 2
+	keyConfigType = 0xa2e3d533
+	// The game tries group + language before the base group. Give each
+	// HD string a distinct instance in a single base group.
+	hdUITextGroup  = 0xe74a40da
+	keyHelpTitle   = 0xe74a43e1
+	keyHelpContent = 0xe74a43e2
 
 	playOptionsLayout = 0x0a7df315
 	keyHelpOpen       = 0xe74a4301
@@ -33,7 +35,7 @@ func appendKeyboardHelpPatch(stub []byte, patches []instructionPatch, base int) 
 	)
 	const imageBase = 0x400000
 	ids := imageBase + base + len(stub)
-	for _, id := range []uint32{keyHelpOpen, keyHelpPanel, keyHelpText, keyHelpClose, keyHelpGroup, keyHelpContent} {
+	for _, id := range []uint32{keyHelpOpen, keyHelpPanel, keyHelpText, keyHelpClose, hdUITextGroup, keyHelpContent} {
 		stub = little.AppendUint32(stub, id)
 	}
 	entry := base + len(stub)
@@ -86,7 +88,7 @@ func keyboardHelpLayout(stock uiStock, options []byte) ([]byte, error) {
 	const creditsButton = " id=0x0a57da65 "
 	const creditsArea = "area=(-1,174,269,204)"
 	const creditsCaption = `caption="Credits" captionres={6a231eaa,4a5d6466}`
-	title := fmt.Sprintf(`caption="Keyboard Shortcuts" captionres={%08x,%08x}`, keyHelpGroup, keyHelpTitle)
+	title := fmt.Sprintf(`caption="Keyboard Shortcuts" captionres={%08x,%08x}`, hdUITextGroup, keyHelpTitle)
 	var settings strings.Builder
 	foundButton := false
 	for _, line := range strings.SplitAfter(string(options), "\n") {
@@ -251,7 +253,7 @@ func keyboardHelpEntries(stock uiStock, russian bool) ([]resource, error) {
 		text.WriteByte('\n')
 	}
 	return []resource{
-		{resourceID{0x2026960b, keyHelpGroup, keyHelpTitle}, encodeLocaleText(translate("Keyboard Shortcuts"))},
-		{resourceID{0x2026960b, keyHelpGroup, keyHelpContent}, encodeLocaleText(strings.TrimSpace(text.String()))},
+		{resourceID{0x2026960b, hdUITextGroup, keyHelpTitle}, encodeLocaleText(translate("Keyboard Shortcuts"))},
+		{resourceID{0x2026960b, hdUITextGroup, keyHelpContent}, encodeLocaleText(strings.TrimSpace(text.String()))},
 	}, nil
 }

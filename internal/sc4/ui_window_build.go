@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
-	"strings"
 )
 
 var stockPNGSignature = []byte("\x89PNG\r\n\x1a\n")
@@ -52,7 +51,7 @@ func (s uiStock) windowGroups(scaleStartup bool) ([]windowGroup, error) {
 		{0xe74a40b5, []uint32{0xca53f06e, 0xcbc3c2b9, 0x4a160034, 0xcbc905cd, 0xc9930681, 0xaa3acdfe, 0xebd0d36c, 0xebd0d36d}},
 		{0xe74a40b6, []uint32{0x2bc90671, 0x898897de, 0xa991ed83, 0x09923283, 0xe9923283, 0xe9949936, 0xe99237ff,
 			0x4992f764, 0x899302fc, 0x4bc906b5, 0x2bc9060f, 0x6bc9065a, 0x6bc61f19, 0x2a2aed99}},
-		{0xe74a40b7, []uint32{0xea287193, 0xea2871aa, 0x0b72f276, 0x8a7e052f, 0x6a553aa4, 0xaa1f1f57}},
+		{0xe74a40b7, []uint32{0xea287193, 0xea2871aa, 0x0b72f276, graphicsOptionsLayout, 0x6a553aa4, 0xaa1f1f57}},
 		{group: 0xe74a40b8},
 		{group: 0xe74a40b9},
 		{group: 0xe74a40be},
@@ -94,7 +93,7 @@ func (s uiStock) windowGroups(scaleStartup bool) ([]windowGroup, error) {
 	return groups, nil
 }
 
-func buildWindowEntries(stock uiStock, config string, graphics4K, windows bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
+func buildWindowEntries(stock uiStock, config string, windows bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
 	groups, err := stock.windowGroups(windows)
 	if err != nil {
 		return nil, "", err
@@ -109,8 +108,13 @@ func buildWindowEntries(stock uiStock, config string, graphics4K, windows bool, 
 			if err != nil {
 				return nil, "", err
 			}
-			if windows && instance == playOptionsLayout {
-				data, err = keyboardHelpLayout(stock, data)
+			if windows {
+				switch instance {
+				case playOptionsLayout:
+					data, err = keyboardHelpLayout(stock, data)
+				case graphicsOptionsLayout:
+					data, err = graphicsResolutionLayout(stock, data)
+				}
 				if err != nil {
 					return nil, "", err
 				}
@@ -136,6 +140,12 @@ func buildWindowEntries(stock uiStock, config string, graphics4K, windows bool, 
 			if err != nil {
 				return nil, "", fmt.Errorf("%s: %w", asset.atlas.source, err)
 			}
+			if window.group == 0xe74a40b7 && asset.atlas.source == graphicsComboFrameSource {
+				data, err = maskGraphicsComboBackdrop(original, data, textureScale)
+				if err != nil {
+					return nil, "", fmt.Errorf("graphics combo frame: %w", err)
+				}
+			}
 			joinID, artScale := asset.target, textureScale
 			if asset.atlas.project {
 				joinID.group -= 0x20
@@ -157,13 +167,6 @@ func buildWindowEntries(stock uiStock, config string, graphics4K, windows bool, 
 			entries = append(entries, resource{asset.target, data})
 		}
 		for _, layout := range window.layouts {
-			if graphics4K && layout.id == layoutID(0x8a7e052f) {
-				const caption = `caption="1600x1200" captionres={0a554ae8,ca7e17db}`
-				if strings.Count(string(layout.data), caption) != 1 {
-					return nil, "", fmt.Errorf("unexpected fourth Graphics Options resolution label")
-				}
-				layout.data = bytes.Replace(layout.data, []byte(caption), []byte(`caption="3840x2160"`), 1)
-			}
 			if seen[layout.id] {
 				return nil, "", fmt.Errorf("duplicate HUD layout %s", layout.id)
 			}

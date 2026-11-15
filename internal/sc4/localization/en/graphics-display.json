@@ -1,0 +1,8 @@
+{
+  "desktopResolution": "Borderless uses the desktop resolution.",
+  "saveError": "Could not save the display settings.",
+  "windowMode": "Window mode",
+  "windowed": "Windowed",
+  "fullscreen": "Fullscreen",
+  "borderless": "Borderless fullscreen"
+}

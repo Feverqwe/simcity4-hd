@@ -5,7 +5,8 @@ SimCity 4 UHD Setup
 
 The mod uses your existing saves. Setup starts with the main display's
 current resolution. You can select a different mode in Advanced options.
-After installation, edit Plugins\SC4GraphicsOptions.ini to change it.
+With the HD interface enabled, you can change the window mode and resolution
+in the game's Graphics Options. Select Accept and restart the game to apply them.
 Setup keeps a stock executable backup in Apps if it patches the executable.
 
 Setup requires the original Steam version of SimCity 4 Deluxe. Upscaling

@@ -100,7 +100,7 @@ func buildHUD(game string, stock uiStock, art uiArtwork, windows bool) ([]resour
 	if err != nil {
 		return nil, err
 	}
-	layouts, config, err := buildWindowEntries(stock, config, false, windows, art.scale, art.upscale)
+	layouts, config, err := buildWindowEntries(stock, config, windows, art.scale, art.upscale)
 	if err != nil {
 		return nil, err
 	}
@@ -586,6 +586,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 			return fmt.Errorf("build keyboard shortcuts: %w", err)
 		}
 		hud = append(hud, help...)
+		displayText, err := graphicsResolutionStrings(*russian != "")
+		if err != nil {
+			return fmt.Errorf("build display settings strings: %w", err)
+		}
+		hud = append(hud, displayText...)
 		progress.report("Driving gauges")
 		gauges, err := driveGaugeEntries(stockUI, art)
 		if err != nil {
