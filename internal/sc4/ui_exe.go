@@ -27,6 +27,9 @@ var budgetSliderArt []byte
 //go:embed patchsrc/ui_budget_tooltip.i386
 var budgetTooltip []byte
 
+//go:embed patchsrc/ui_editor_decimal.i386
+var editorDecimal []byte
+
 //go:embed patchsrc/ui_import_node_font.i386
 var importNodeFont []byte
 
@@ -357,6 +360,7 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	patches = append(patches, zodiacArrow)
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
+	stub, patches = appendEditorDecimalPatches(stub, patches, stubRVA)
 	if options.russianBudgetTips {
 		stub, patches = appendBudgetTooltipPatch(stub, patches, stubRVA)
 	}
@@ -541,7 +545,41 @@ func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int)
 	return stub, append(patches, constructor, patch)
 }
 
+func appendEditorDecimalPatches(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
+	// Localized editors and the CRT may use different decimal separators.
+	// Only intercept user-entered numbers held in a temporary edit buffer.
+	addParser := func(parser int, sites ...int) {
+		entry := base + len(stub)
+		stub = append(stub, editorDecimal...)
+		stub = append(stub, relativeInstruction(0xe9, base+len(stub), parser)...)
+		for _, site := range sites {
+			patches = append(patches, instructionPatch{
+				site, relativeInstruction(0xe8, site, parser),
+				relativeInstruction(0xe8, site, entry),
+			})
+		}
+	}
+	addParser(0x5f0eae, 0x369188)                               // Tax-rate editor (strtod).
+	addParser(0x50fc5b, 0x26cea5, 0x26cefb, 0x26d03a, 0x26d125) // Curve editor (atof).
+	return stub, patches
+}
+
 func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {
+	patches = append(patches,
+		// Reject notifications outside the twelve rate editors.
+		instruction(0x3690fc, "7909", "9090"),
+		instruction(0x369101, "0f8d55010000", "0f8355010000"),
+	)
+	// Require a nonempty, fully parsed number. On failure reformat the
+	// spinner's value without writing a rate from the stock fallback table.
+	const checkTaxEnd = 0x3691a5
+	entry := stubRVA + len(stub)
+	stub = append(stub, hexBytes("39d1740b03c239c17505")...) // end != start && end == start + len
+	stub = append(stub, relativeInstruction(0xe9, stubRVA+len(stub), 0x3691c6)...)
+	stub = append(stub, relativeInstruction(0xe9, stubRVA+len(stub), 0x3691ed)...)
+	patches = append(patches, instructionPatch{checkTaxEnd, hexBytes("03c23bc1741b"),
+		append(relativeInstruction(0xe9, checkTaxEnd, entry), 0x90)})
+
 	// Keep the gaps between the tabs, main ledger and finance controls
 	// when the game rebuilds the Budget window.
 	patches = append(patches,
