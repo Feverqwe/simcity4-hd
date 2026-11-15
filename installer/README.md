@@ -24,6 +24,9 @@ The portable installer includes the SimCity 4 UHD Russian translation and Cyrill
 To package a different translation revision, unpack the bundled language pack,
 replace its locale file, and pass that folder to `package.ps1 -RussianSource`.
 
+The UHD interface option also builds the updated advisors from the installed
+Steam game assets. The builder includes the data it needs for this step.
+
 For repeated local builds, put `ccache` on PATH and set
 `$env:CMAKE_CXX_COMPILER_LAUNCHER = 'ccache'` before running `package.ps1`.
 

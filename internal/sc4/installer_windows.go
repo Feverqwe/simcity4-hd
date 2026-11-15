@@ -421,12 +421,22 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		if err := os.Mkdir(stage, 0755); err != nil {
 			return err
 		}
+		if options.ui {
+			progress.report("Preparing the advisors")
+			if err := stageSetupAdvisors(ctx, game, stage); err != nil {
+				return err
+			}
+		}
 		if len(packageDirs) > 0 {
 			packages, err := packagePaths(packageDirs)
 			if err != nil {
 				return err
 			}
-			if err := verifyPackages(packages, os.Stderr); err != nil {
+			validation := packages
+			if options.ui {
+				validation = append(validation, filepath.Join(stage, advisorsPackage))
+			}
+			if err := verifyPackages(validation, os.Stderr); err != nil {
 				return err
 			}
 			for _, name := range packages {

@@ -501,6 +501,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	rebuildAdvisors := desired.ui && !setupAdvisorsCurrent(ctx, active)
 	installedFiles, err := readInstalledFiles(active)
 	if err != nil {
 		return err
@@ -597,6 +598,10 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 			case name == modReceipt || name == installedCacheFile || name == installedSettingsChangesFile ||
 				rememberWorld && name == installedWorldSelectionFile:
 				continue
+			case name == advisorsPackage || name == installedAdvisorsState:
+				if !desired.ui || rebuildAdvisors {
+					continue
+				}
 			case isInterfacePackage(name) && (!desired.ui || rebuildUI):
 				continue
 			}
@@ -637,6 +642,12 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		}
 		generated = append(generated, filepath.Join(worldStage, "Plugins"))
 	}
+	if rebuildAdvisors {
+		progress.report("Preparing the advisors")
+		if err := stageSetupAdvisors(ctx, game, newActive); err != nil {
+			return err
+		}
+	}
 	if len(generated) > 0 {
 		packages, err := packagePaths(generated)
 		if err != nil {
@@ -647,7 +658,9 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 				return err
 			}
 		}
-		packages, err = packagePaths([]string{newActive})
+	}
+	if len(generated) > 0 || rebuildAdvisors {
+		packages, err := packagePaths([]string{newActive})
 		if err != nil {
 			return err
 		}
