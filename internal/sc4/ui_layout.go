@@ -98,6 +98,13 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 			// source must end before the positive half of the atlas.
 			line = strings.Replace(line, "imagerect=(0,0,42,9)", "imagerect=(0,0,21,9)", 1)
 		}
+		dataViewIcon := strings.Contains(line, "clsid=GZWinBMP ") &&
+			strings.Contains(line, "image={46a006b0,140155ec}")
+		if mayorTrend || dataViewIcon {
+			// Preserve the mask when the game paints and then composites
+			// the transparent window's backing bitmap.
+			line = strings.Replace(line, " winflag_alphablend=no ", " winflag_alphablend=yes ", 1)
+		}
 		if instance == 0x4bc906b5 && strings.Contains(line, "image={46a006b0,14015585}") {
 			// Align the Environment, Traffic and Education outlines with
 			// their centered score fills and the contours on the panel.
