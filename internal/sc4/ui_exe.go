@@ -452,12 +452,12 @@ func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int)
 	// with the parent window and service for the optional last column.
 	body := relativeInstruction(0xe8, base+len(stub), 0x379b80)
 	body = append(body, 0x60) // Preserve the original caller registers.
-	for _, arg := range []uint32{0x414250, 0x603580, 0x90ddf1, russianBudgetTooltipGroup} {
+	for _, arg := range []uint32{0x9c1bd9, 0x414250, 0x603580, 0x90ddf1, russianBudgetTooltipGroup} {
 		body = little.AppendUint32(append(body, 0x68), arg)
 	}
 	body = append(body, hexBytes("ffb638010000ff7610")...)
 	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
-	body = append(body, hexBytes("83c41861")...)
+	body = append(body, hexBytes("83c41c61")...)
 	var patch instructionPatch
 	stub, patch = appendStub(stub, base, site, relativeInstruction(0xe8, site, 0x379b80), body)
 	return stub, append(patches, patch)

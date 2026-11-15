@@ -51,9 +51,7 @@ var russianButtonCaptionData []byte
 var russianBudgetCaptionData []byte
 
 func russianBudgetTooltips(hud []resource) {
-	// The renderer and mouse router already support an invisible disabled
-	// button that receives hover events. Keep the original tax caption and
-	// its neighbors in place and put the tip inside the caption's rectangle.
+	// Use the transparent tooltip label from Free Drive over the tax caption.
 	for i := range hud {
 		layout := &hud[i]
 		if layout.id != layoutID(0xcbc3c2b9) {
@@ -68,7 +66,8 @@ func russianBudgetTooltips(hud []resource) {
 			area := driveButtonArea.FindString(line)
 			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn id=0x0cc05b9a %s "+
 				"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
-				"showcaption=no fill=no autosize=no tips=yes tipsdelay=yes tipres={%08x,cc05b9a4} >\n",
+				"style=label showcaption=no fill=no autosize=no tips=yes tipsdelay=yes "+
+				"tipstimeout=no tipoffsets=(0,0) tipflag=0x01000000 tipres={%08x,cc05b9a4} >\n",
 				area, russianBudgetTooltipGroup)
 		}
 		layout.data = []byte(output.String())

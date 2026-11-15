@@ -18,8 +18,11 @@ typedef Byte (TC *Create)(Object *, U32, U32, Object **);
 typedef void (TC *Release)(Object *);
 typedef Object *(TC *GetWindow)(Object *);
 typedef const Rect *(TC *GetArea)(Object *);
+typedef void (TC *MeasureText)(Object *, Rect *, Byte, Byte);
 typedef void (TC *SetArea)(Object *, int, int, int, int);
-typedef void (TC *SetFlag)(Object *, U32, Byte);
+typedef Byte (TC *SetFlag)(Object *, U32, Byte);
+typedef Byte (TC *SetStyle)(Object *, U32, Object *, const Rect *);
+typedef Byte (TC *SetTipFlags)(Object *, U32);
 typedef Byte (TC *SetTooltip)(Object *, const TextResource *);
 typedef void (TC *AddChild)(Object *, Object *);
 typedef void (TC *LoadText)(TextResource *, U32, U32, U32);
@@ -27,9 +30,10 @@ typedef void (TC *CloseText)(TextResource *);
 typedef Object *(*GetFactory)(void);
 
 // Called after the text constructor and before the budget tree doubles
-// every control. The caption owns an ordinary tooltip-only child.
+// every control. Use the same transparent label as the Free Drive speedometer.
 void addBudgetTooltip(Object *parent, U32 service, U32 tooltipGroup,
-                      GetFactory getFactory, LoadText loadText, CloseText closeText) {
+                      GetFactory getFactory, LoadText loadText, CloseText closeText,
+                      MeasureText measureText) {
     U32 text;
     switch (service) {
     case 0x4a5654ba: text = 0x0c04a37a; break; // School buses
@@ -41,8 +45,13 @@ void addBudgetTooltip(Object *parent, U32 service, U32 tooltipGroup,
         return;
 
     const Rect *area = METHOD(caption, 0xc0, GetArea)(caption);
-    const int width = area->right - area->left, height = area->bottom - area->top;
-    if (width > 0 && height > 0) {
+    if (area->right > area->left && area->bottom > area->top) {
+        Rect ink;
+        measureText(caption, &ink, 0, 0);
+        // This heading is right-aligned. Include its two-pixel gutters.
+        const int width = ink.right - ink.left;
+        const int left = width > 1 && width + 4 < area->right - area->left ?
+            area->right - width - 4 : area->left;
         TextResource tip;
         loadText(&tip, tooltipGroup, text, 1);
         if (tip.begin != tip.end) {
@@ -50,15 +59,16 @@ void addBudgetTooltip(Object *parent, U32 service, U32 tooltipGroup,
             Object *button = 0;
             if (factory && METHOD(factory, 0x0c, Create)(factory, 0x22ecfc47, 0x8810, &button) && button) {
                 Object *window = METHOD(button, 0x0c, GetWindow)(button);
-                METHOD(button, 0x14, SetFlag)(button, 0x10, 1); // Skip the fallback button face.
+                METHOD(button, 0x30, SetStyle)(button, 1, 0, 0); // Label with no image.
+                METHOD(button, 0x14, SetFlag)(button, 0x10, 1); // No button face.
+                METHOD(button, 0x14, SetFlag)(button, 0x400, 0); // No tooltip timeout.
                 METHOD(window, 0x110, SetFlag)(window, 0x2, 0); // Mouse movement only.
                 METHOD(window, 0x110, SetFlag)(window, 0x8000, 0); // No keyboard focus.
-                METHOD(window, 0x110, SetFlag)(window, 0x8, 0); // No background color.
+                METHOD(window, 0x110, SetFlag)(window, 0x10000, 0); // Paint directly on the parent.
                 if (METHOD(button, 0x8c, SetTooltip)(button, &tip)) {
-                    // Restrict the hover area to the right-hand column.
-                    const int left = width > 110 ? width - 110 : 0;
-                    METHOD(window, 0xdc, SetArea)(window, left, 0, width, height);
-                    METHOD(caption, 0x38, AddChild)(caption, window);
+                    METHOD(button, 0x98, SetTipFlags)(button, 0x01000000); // Center above the label.
+                    METHOD(window, 0xdc, SetArea)(window, left, area->top, area->right, area->bottom);
+                    METHOD(parent, 0x38, AddChild)(parent, window);
                 }
                 METHOD(button, 0x08, Release)(button);
             }
