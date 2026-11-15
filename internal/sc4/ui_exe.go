@@ -371,7 +371,7 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 
 	// The HTML control creates its vertical scrollbar at runtime. Resize
 	// the child rectangle and reserve matching space in the text viewport.
-	var bottom, left instructionPatch
+	var bottom, left, horizontalRight instructionPatch
 	stub, bottom = appendStub(stub, stubRVA, 0x4fa8b9,
 		hexBytes("508b068bce"), hexBytes("83f80873056a0458eb0383e804508b068bce"))
 	// SetArea takes edges, and the stock left edge depends on the child
@@ -379,8 +379,22 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	stub, left = appendStub(stub, stubRVA, 0x4fa8c5,
 		hexBytes("8b036a008bcbff90a400000033db432bd88b068bce"),
 		hexBytes("6a04bbe4ffffff8b068bce"))
-	patches = append(patches, bottom, left,
+	// Leave the bottom-right corner to the vertical bar when both are present.
+	stub, horizontalRight = appendStub(stub, stubRVA, 0x4fa91f,
+		hexBytes("508b038bcb"), hexBytes("83bea401000000740783e81c790233c0508b038bcb"))
+	patches = append(patches, bottom, left, horizontalRight,
 		instruction(0x4fbcbf, "c7868c01000016000000", "c7868c01000024000000"))
+	// Initial layout only runs when the HTML view creates its bars. Keep
+	// their bounds in sync when an existing view is resized and reflows.
+	const resizeHTML = 0x4facef
+	resizeBars := stubRVA + len(stub)
+	body := hexBytes("8bce") // mov ecx, esi
+	body = append(body, relativeInstruction(0xe8, resizeBars+len(body), 0x4fa88a)...)
+	body = append(body, hexBytes("8bce")...)
+	body = append(body, relativeInstruction(0xe8, resizeBars+len(body), 0x4fa559)...)
+	var resize instructionPatch
+	stub, resize = appendStub(stub, stubRVA, resizeHTML, hexBytes("8bcee863f8ffff"), body)
+	patches = append(patches, resize)
 	// The horizontal update must not overwrite the vertical range.
 	for _, site := range []int{0x4fa849, 0x4fa857, 0x4fa872} {
 		patches = append(patches, instruction(site, "8b8ea4010000", "8b8ea8010000"))
