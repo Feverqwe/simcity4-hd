@@ -162,15 +162,16 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 		return nil
 	}
 	if options.ui {
-		folders := []string{filepath.Join(cache, "ui-atlases-x4"), filepath.Join(cache, "ui-catalog-chrome"),
-			filepath.Join(cache, "ui-portraits-x4")}
+		folders := []string{filepath.Join(cache, interfaceAtlasFolder), filepath.Join(cache, catalogFramesFolder),
+			filepath.Join(cache, portraitsFolder)}
 		if options.interfaceOptions.hdCursors {
-			folders = append(folders, filepath.Join(cache, "ui-cursors-x4"))
+			folders = append(folders, filepath.Join(cache, cursorsFolder))
 		}
 		if err := reserve(512*mib, 512*mib, folders...); err != nil {
 			return err
 		}
 	}
+	interfaceCacheBytes := cacheBytes
 	worldFolders := func(selection worldSelection, scale int) []string {
 		var folders []string
 		categories := worldCategoryCache(cache, scale)
@@ -210,6 +211,13 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 		if err := reserve(0, component.cached/3, worldFolders(component.selection, 2)...); err != nil {
 			return err
 		}
+	}
+	if options.world.any() {
+		images, err := setupDirSize(ctx, filepath.Join(cache, inferenceCacheFolder), true)
+		if err != nil {
+			return fmt.Errorf("measure upscaled image cache: %w", err)
+		}
+		cacheBytes -= min(images, cacheBytes-interfaceCacheBytes)
 	}
 	return checkVolumeSpace([]spaceRequest{
 		{game, "the HD installation", installBytes},

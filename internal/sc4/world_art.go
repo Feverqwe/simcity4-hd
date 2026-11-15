@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -39,54 +38,21 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 		}
 		return data, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) || a.infer == nil {
+	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-
-	x2, x4, err := rebuildBCTextures(original, placement, a.upscale)
-	if err != nil {
+	if a.infer == nil {
 		return nil, err
 	}
-	// Publish x4 last so that an interrupted build can still use the x2 result.
-	for _, texture := range []struct {
-		scale int
-		data  []byte
-	}{{2, x2}, {4, x4}} {
-		if err := a.ctx.Err(); err != nil {
-			return nil, err
-		}
-		target := filepath.Join(cache(texture.scale), name)
-		err := publishFile(target, func(w io.Writer) error {
-			_, err := w.Write(texture.data)
-			return err
-		})
-		if err != nil {
-			// A previous attempt or a concurrent build may have published this scale.
-			existing, readErr := os.ReadFile(target)
-			if readErr != nil {
-				return nil, err
-			}
-			existing, err = readWorldTexture(original, existing, texture.scale, placement, func() ([]byte, error) {
-				return x2, nil
-			})
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", target, err)
-			}
-			texture.data = existing
-		}
-		if texture.scale == a.scale {
-			data = texture.data
-		}
-	}
-	return data, nil
+	return rebuildBCTexture(original, a.scale, placement, a.upscale)
 }
 
 func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {
-	png, err := encodeRGBA(source)
+	input, err := encodeRGBA(source)
 	if err != nil {
 		return nil, err
 	}
-	output, err := a.infer(png)
+	output, err := a.infer(input)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +187,7 @@ func worldInference(ctx context.Context, cache string, config inferenceConfig) (
 			return worker.upscalePNG(data)
 		}
 	}
+	art.infer = cachedInference(ctx, cache, config, art.infer)
 	return art, func() error {
 		if worker == nil {
 			return nil

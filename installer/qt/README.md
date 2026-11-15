@@ -37,6 +37,11 @@ arguments. Set `reconfigure` when the backend supports `configure` and
 `remove`. Both `install` and `configure` also receive the display resolution
 as `-ID WIDTHxHEIGHT`, enabled dropdowns as `-ID=VALUE`, and all checkbox
 options as `-ID=true` or `-ID=false`. A disabled checkbox sends false.
+Set `textureArchives` to offer texture import before installation and export
+after successful installation or configuration. Both actions open a file
+picker and then a separate progress dialog. The backend receives
+`import-textures` or `export-textures` with `-cache PATH` when provided and
+`-archive PATH`.
 Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 
 | Event `type` | Payload and behavior |
@@ -47,11 +52,12 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 | `count` | `value` counts units processed in the current step. An optional positive `total` sets the progress bar and displays both counts. |
 | `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, enable `reconfigure` and send a nonempty `settings` object. Its `options` and `choices` objects supply checkbox and dropdown values by manifest ID. Its `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
+| `textures-transferred` | The archive operation succeeded. |
 | `retry-resource` | `text` describes a recoverable download failure. A line containing `retry` on stdin retries the resource in the current operation. EOF requests a pause. |
 | `error` | `text` describes the problem. An optional `field` identifies a path the user can correct. |
 | `stopped` | Installation paused and may be retried. |
 
-During install or configure, EOF on stdin requests a pause, including when the setup
+During install, configure or an archive operation, EOF on stdin requests a pause, including when the setup
 window closes. Save resumable work before publishing the final installation.
 On a clean pause, emit `stopped` and exit. Successful installs emit
 `installed` and exit zero. Failed commands emit `error` and exit nonzero.

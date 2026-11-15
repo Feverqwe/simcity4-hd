@@ -11,6 +11,10 @@ import (
 
 // publishFile exposes a complete file and refuses to replace an existing path.
 func publishFile(output string, write func(io.Writer) error) error {
+	return publishStagedFile(output, write, os.Link)
+}
+
+func publishStagedFile(output string, write func(io.Writer) error, publish func(from, to string) error) error {
 	parent := filepath.Dir(output)
 	if err := os.MkdirAll(parent, 0755); err != nil {
 		return err
@@ -26,7 +30,7 @@ func publishFile(output string, write func(io.Writer) error) error {
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err
 	}
-	if err := os.Link(temp.Name(), output); errors.Is(err, os.ErrExist) {
+	if err := publish(temp.Name(), output); errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("%s already exists", output)
 	} else {
 		return err

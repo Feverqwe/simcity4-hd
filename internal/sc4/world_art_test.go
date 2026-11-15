@@ -3,6 +3,7 @@ package sc4
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"image"
 	"image/color"
@@ -47,10 +48,12 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				}
 				return encodeRGBA(pixels)
 			}
-			art := worldArtwork{ctx: context.Background(), scale: 2, infer: func(data []byte) ([]byte, error) {
+			ctx := context.Background()
+			config := inferenceConfig{scale: 4, tile: 64, overlap: 16}
+			art := worldArtwork{ctx: ctx, scale: 2, infer: cachedInference(ctx, root, config, func(data []byte) ([]byte, error) {
 				calls++
 				return infer(data)
-			}}
+			})}
 			x2, err := art.texture(cache, stock, false)
 			if err != nil {
 				t.Fatal(err)
@@ -76,7 +79,15 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 			if !bytes.Equal(x2[40:40+len(wantX2)], wantX2) {
 				t.Fatal("x2 differs from the result encoded from uncompressed model output")
 			}
-			art.infer = nil
+			archive := filepath.Join(t.TempDir(), "textures.zip")
+			if err := exportTextureArchive(ctx, root, archive, textureArchiveProgress{}); err != nil {
+				t.Fatal(err)
+			}
+			root = t.TempDir()
+			if err := importTextureArchive(ctx, root, archive, textureArchiveProgress{}); err != nil {
+				t.Fatal(err)
+			}
+			art.infer = cachedInference(ctx, root, config, nil)
 			art.scale = 4
 			x4, err := art.texture(cache, stock, false)
 			if err != nil {
@@ -150,11 +161,11 @@ func TestWorldZeroOffsetMipChain(t *testing.T) {
 		legacy := append(bytes.Clone(data[:end]), stock[80:]...)
 		legacy[frame+15] = stock[47]
 		little.PutUint32(legacy[4:], uint32(len(legacy)))
-		matches, err := filepath.Glob(filepath.Join(cache(scale), "*.fsh"))
-		if err != nil || len(matches) != 1 {
-			t.Fatalf("find x%d cache entry: %v", scale, err)
+		if err := os.MkdirAll(cache(scale), 0755); err != nil {
+			t.Fatal(err)
 		}
-		if err := os.WriteFile(matches[0], legacy, 0o644); err != nil {
+		path := filepath.Join(cache(scale), fmt.Sprintf("%x.fsh", sha256.Sum256(stock)))
+		if err := os.WriteFile(path, legacy, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

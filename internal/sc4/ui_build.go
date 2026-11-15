@@ -64,7 +64,7 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid UI atlas frame geometry")
 	}
 	widths := slices.Repeat([]int{config.Width / spec.frames}, spec.frames)
-	data, _, err := a.atlas("ui-atlases-x4", spec.source, original, widths)
+	data, _, err := a.atlas(interfaceAtlasFolder, spec.source, original, widths)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +379,7 @@ func buildNewsMarkers(stock uiStock, art uiArtwork) ([]resource, error) {
 				}
 			}
 		}
-		_, atlas, err := art.atlas("ui-atlases-x4", id, data, []int{18})
+		_, atlas, err := art.atlas(interfaceAtlasFolder, id, data, []int{18})
 		if err != nil {
 			return nil, fmt.Errorf("News marker %s: %w", id, err)
 		}
@@ -567,6 +567,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 			return worker.upscalePNG(data)
 		}
 	}
+	infer = cachedInference(ctx, cache, config, infer)
 	stock, err := openArchive(filepath.Join(game, "SimCity_1.dat"))
 	if err != nil {
 		return err
@@ -582,12 +583,12 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	// The runtime catalog shares native copy routines with other windows.
 	// Project its x4 art to the doubled frame geometry those routines expect.
 	progress.report("Building catalog")
-	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, "ui-atlases-x4"), 2, infer, progress)
+	square, bridge, err := catalogSheetEntries(game, filepath.Join(cache, interfaceAtlasFolder), 2, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build catalog sheets: %w", err)
 	}
 	progress.report("Catalog frames")
-	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, "ui-catalog-chrome"), 2, infer, progress)
+	chrome, err := catalogChromeEntries(stock, filepath.Join(cache, catalogFramesFolder), 2, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build catalog frames: %w", err)
 	}
@@ -608,7 +609,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	progress.report("Portraits")
 	// The picker always consumes screen-density portraits. Both packages
 	// can use the same projected artwork and inference cache.
-	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, "ui-portraits-x4"), 4, infer, progress)
+	portraits, err := mySimPortraitEntries(stock, filepath.Join(cache, portraitsFolder), 4, infer, progress)
 	if err != nil {
 		return fmt.Errorf("build My Sims portraits: %w", err)
 	}

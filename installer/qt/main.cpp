@@ -14,6 +14,13 @@
 
 namespace {
 
+static void logLine(const char *source, const QByteArray &message) {
+    const auto entry = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
+        + " [" + source + "] " + message + '\n';
+    std::fwrite(entry.constData(), 1, entry.size(), stderr);
+    std::fflush(stderr);
+}
+
 class Banner : public QWidget {
 public:
     Banner(QString name, const QString &file) : title(std::move(name)) {
@@ -185,6 +192,146 @@ QString defaultChoice(const QJsonObject &option, const QDir &assets, const QStri
     return fallback;
 }
 
+class TextureTransferDialog : public QDialog {
+public:
+    TextureTransferDialog(bool exporting, QWidget *parent)
+        : QDialog(parent), exporting(exporting) {
+        setWindowTitle(exporting ? tr("Export texture images") : tr("Import texture images"));
+        setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+        setMinimumWidth(420);
+
+        auto *layout = new QVBoxLayout(this);
+        status = new QLabel(tr("Checking the texture archive…"));
+        status->setTextFormat(Qt::PlainText);
+        status->setWordWrap(true);
+        layout->addWidget(status);
+
+        bar = new QProgressBar;
+        bar->setAccessibleName(exporting ? tr("Packing progress") : tr("Unpacking progress"));
+        bar->setRange(0, 0);
+        layout->addWidget(bar);
+        count = new QLabel;
+        count->hide();
+        layout->addWidget(count);
+
+        auto *actions = new QDialogButtonBox;
+        cancel = actions->addButton(QDialogButtonBox::Cancel);
+        closeButton = actions->addButton(QDialogButtonBox::Close);
+        closeButton->hide();
+        layout->addWidget(actions);
+        connect(cancel, &QPushButton::clicked, this, &TextureTransferDialog::reject);
+        connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
+
+#ifdef Q_OS_WIN
+        process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+            args->flags |= 0x08000000; // CREATE_NO_WINDOW
+        });
+#endif
+        connect(&process, &QProcess::readyReadStandardOutput, this, [this] { readEvents(); });
+        connect(&process, &QProcess::readyReadStandardError, this, [this] { readDiagnostics(); });
+        connect(&process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+            logLine("process", process.errorString().toUtf8());
+            if (error == QProcess::FailedToStart)
+                finish(tr("Could not start the texture transfer."));
+        });
+        connect(&process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus exit) {
+            readEvents();
+            if (!pending.isEmpty())
+                handleEvent(pending);
+            readDiagnostics();
+            logLine("process", QStringLiteral("Texture transfer exited with code %1").arg(code).toUtf8());
+            if (!errorText.isEmpty()) {
+                finish(errorText);
+            } else if (cancelled && stopped) {
+                QDialog::reject();
+            } else if (transferred && code == 0 && exit == QProcess::NormalExit) {
+                bar->setRange(0, 100);
+                bar->setValue(100);
+                finish(this->exporting ? tr("Texture images exported.") : tr("Texture images imported."), true);
+            } else {
+                finish(tr("The texture transfer stopped unexpectedly. See the setup log for details."));
+            }
+        });
+    }
+
+    void run(const QString &backend, const QStringList &args) {
+        logLine("process", "Starting " + QJsonDocument(QJsonArray::fromStringList(args)).toJson(QJsonDocument::Compact));
+        process.start(backend, args);
+        exec();
+    }
+
+protected:
+    void reject() override {
+        if (process.state() == QProcess::NotRunning) {
+            QDialog::reject();
+        } else if (!cancelled) {
+            cancelled = true;
+            cancel->setEnabled(false);
+            status->setText(tr("Cancelling…"));
+            process.closeWriteChannel();
+        }
+    }
+
+private:
+    void readEvents() {
+        pending += process.readAllStandardOutput();
+        qsizetype end;
+        while ((end = pending.indexOf('\n')) >= 0) {
+            handleEvent(pending.first(end));
+            pending.remove(0, end + 1);
+        }
+    }
+
+    void readDiagnostics() {
+        const auto message = process.readAllStandardError().trimmed();
+        if (!message.isEmpty())
+            logLine("backend", message);
+    }
+
+    void handleEvent(const QByteArray &line) {
+        logLine("event", line);
+        const auto event = QJsonDocument::fromJson(line).object();
+        const auto type = event.value("type").toString();
+        if (type == "textures-transferred") {
+            transferred = true;
+        } else if (type == "error") {
+            errorText = event.value("text").toString();
+        } else if (type == "stopped") {
+            stopped = true;
+        } else if (!cancelled && type == "step") {
+            status->setText(exporting ? tr("Packing texture images…") : tr("Unpacking texture images…"));
+        } else if (!cancelled && type == "count") {
+            const int total = event.value("total").toInt();
+            if (total > 0) {
+                const int done = event.value("value").toInt();
+                bar->setRange(0, total);
+                bar->setValue(done);
+                count->setText(tr("Images processed: %L1 / %L2").arg(done).arg(total));
+                count->show();
+            }
+        }
+    }
+
+    void finish(const QString &message, bool successful = false) {
+        status->setText(message);
+        bar->setVisible(successful);
+        count->setVisible(successful && !count->text().isEmpty());
+        cancel->hide();
+        closeButton->show();
+        closeButton->setDefault(true);
+        closeButton->setFocus();
+    }
+
+    QProcess process;
+    QByteArray pending;
+    QString errorText;
+    QLabel *status, *count;
+    QProgressBar *bar;
+    QPushButton *cancel, *closeButton;
+    const bool exporting;
+    bool cancelled = false, stopped = false, transferred = false;
+};
+
 class Setup : public QDialog {
 public:
     explicit Setup(QString program, QJsonObject manifest, const QDir &assets = QDir())
@@ -208,6 +355,11 @@ public:
         status->setWordWrap(true);
         status->setTextFormat(Qt::PlainText);
         layout->addWidget(status);
+        exportTextures = new QPushButton(tr("Export textures…"));
+        exportTextures->setAutoDefault(false);
+        exportTextures->hide();
+        layout->addWidget(exportTextures, 0, Qt::AlignLeft);
+        connect(exportTextures, &QPushButton::clicked, this, [this] { chooseTextureArchive(true); });
         bar = new QProgressBar;
         bar->setAccessibleName(tr("Installation progress"));
         bar->hide();
@@ -327,6 +479,11 @@ public:
         });
 
         auto *actions = new QDialogButtonBox;
+        importTextures = new QPushButton(tr("Import textures…"));
+        importTextures->setAutoDefault(false);
+        importTextures->hide();
+        actions->addButton(importTextures, QDialogButtonBox::ActionRole);
+        connect(importTextures, &QPushButton::clicked, this, [this] { chooseTextureArchive(false); });
         removeInstalled = new QPushButton(tr("Remove mod…"));
         actions->addButton(removeInstalled, QDialogButtonBox::ActionRole);
         removeInstalled->hide();
@@ -412,6 +569,10 @@ public:
                 return;
             if (completed) {
                 inspectSelection();
+                return;
+            }
+            if (paused) {
+                startOperation(operation);
                 return;
             }
             if (reconfigurable && !paused && !advanced->isChecked()) {
@@ -647,6 +808,8 @@ private:
         primary->setEnabled(false);
         closeInstalled->hide();
         play->hide();
+        importTextures->hide();
+        exportTextures->hide();
         removeInstalled->hide();
         startBackend("inspect");
     }
@@ -657,6 +820,36 @@ private:
             return false;
         edit->setText(QDir::toNativeSeparators(selected));
         return true;
+    }
+
+    void chooseTextureArchive(bool exporting) {
+        if (running || inspecting || paused || (exporting ? !completed || !installed : completed))
+            return;
+        const auto filter = tr("Texture archives (*.zip)");
+        auto path = exporting
+            ? QFileDialog::getSaveFileName(this, tr("Export texture images"),
+                  QDir::home().filePath("SimCity4UHD-Textures.zip"), filter, nullptr, QFileDialog::DontConfirmOverwrite)
+            : QFileDialog::getOpenFileName(this, tr("Import texture images"), QDir::homePath(), filter);
+        if (path.isEmpty())
+            return;
+        if (exporting && QFileInfo(path).suffix().isEmpty())
+            path += QStringLiteral(".zip");
+        if (exporting && QFileInfo::exists(path)) {
+            QMessageBox::warning(this, tr("Export texture images"), tr("Choose a new file name for the archive."));
+            return;
+        }
+        QStringList args;
+        for (const auto &arg : config.value("backendArgs").toArray())
+            args << arg.toString();
+        args << (exporting ? "export-textures" : "import-textures");
+        if (const auto *cache = fieldById("cache")) {
+            const auto folder = cache->edit->text().trimmed();
+            if (!folder.isEmpty())
+                args << "-cache" << QDir::toNativeSeparators(folder);
+        }
+        args << "-archive" << QDir::toNativeSeparators(path);
+        TextureTransferDialog dialog(exporting, this);
+        dialog.run(backend, args);
     }
 
     QStringList arguments(const QString &command) const {
@@ -695,6 +888,8 @@ private:
         primary->hide();
         closeInstalled->hide();
         removeInstalled->hide();
+        importTextures->hide();
+        exportTextures->hide();
         pause->setVisible(!removing);
         pause->setEnabled(true);
         if (!removing)
@@ -717,13 +912,6 @@ private:
             appendDetails(tr("Pause requested.").toUtf8() + '\n');
             process.closeWriteChannel();
         }
-    }
-
-    static void logLine(const char *source, const QByteArray &message) {
-        const auto entry = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
-            + " [" + source + "] " + message + '\n';
-        std::fwrite(entry.constData(), 1, entry.size(), stderr);
-        std::fflush(stderr);
     }
 
     void startBackend(const QString &command) {
@@ -964,6 +1152,9 @@ private:
         primary->show();
         primary->setEnabled(true);
         play->setVisible(completed && installed && !config.value("completionUrl").toString().isEmpty());
+        const bool archives = config.value("textureArchives").toBool();
+        importTextures->setVisible(archives && !completed && !paused);
+        exportTextures->setVisible(archives && completed && installed);
         if (completed) {
             counter->hide();
             advanced->setChecked(false);
@@ -1035,7 +1226,7 @@ private:
     QList<Choice> choices;
     QString resolutionFlag;
     QComboBox *resolution = nullptr;
-    QPushButton *primary, *pause, *closeInstalled, *removeInstalled, *play;
+    QPushButton *primary, *pause, *closeInstalled, *removeInstalled, *play, *importTextures, *exportTextures;
 };
 
 } // namespace

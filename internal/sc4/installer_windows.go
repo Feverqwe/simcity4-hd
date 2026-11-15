@@ -162,6 +162,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	flags := flag.NewFlagSet("installer", flag.ContinueOnError)
 	game := flags.String("game", "", "original Steam game directory")
 	cache := flags.String("cache", filepath.Join(data, "Cache"), "texture cache directory")
+	archive := flags.String("archive", "", "portable texture archive")
 	ui := flags.Bool("ui", true, "upscale interface textures and apply UI fixes")
 	language := flags.String("language", "game", "game language (game or russian)")
 	textureScale := flags.Int("texture-scale", 2, "texture and cursor scale (2 or 4)")
@@ -182,6 +183,8 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		return errors.New("Unexpected installer arguments.")
 	}
 	switch args[0] {
+	case "export-textures", "import-textures":
+		return setupTextureTransfer(args[0], *cache, *archive, emit)
 	case "inspect":
 		if *game == "" {
 			*game = findSteamGame()

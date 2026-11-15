@@ -194,7 +194,7 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.N
 		return nil, err
 	}
 	// Variants with identical RGB share inference even when their masks differ.
-	_, enlarged, err := art.atlas("ui-cursors-x4", resourceID{kind: cursorResource}, input, []int{w})
+	_, enlarged, err := art.atlas(cursorsFolder, resourceID{kind: cursorResource}, input, []int{w})
 	if err != nil {
 		return nil, err
 	}

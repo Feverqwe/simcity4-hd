@@ -20,6 +20,8 @@ Choose **Русский** under **Advanced options → Game language** to use th
 
 By default, setup uses the `SimCity4UHDCache` folder next to the installer EXE. To reuse a cache from another location, select its folder in **Advanced options**.
 
+After installation finishes, select **Export textures** to save your cached PNGs as a ZIP. On another PC, choose **Import textures** on the first screen before installing. Setup shows progress in a separate window during both operations. A complete image cache lets setup generate the game packages without an NVIDIA GPU. To export world images from an older installation whose cache only contains compressed textures, build them once in a fresh cache.
+
 To change a mod installed through setup, close the game, reopen setup, and select **Configure**. Change the options and select **Apply changes**. Setup keeps disabled world textures available for later use. Select **Remove mod** to remove the installation and keep the texture cache.
 
 Setup shows installation steps and errors below the progress bar. Each session is saved under `%LOCALAPPDATA%/SimCity4HD/Logs`.
