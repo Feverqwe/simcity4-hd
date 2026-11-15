@@ -17,6 +17,6 @@
 
 ## Verification
 
-- Use the [installer build guide](README.md) and [Windows workflow](../.github/workflows/windows.yml) for packaging. On Windows, verify that the packaged EXE extracts the expected backend and opens with the bundled Qt runtime.
+- Use the [installer build guide](README.md) for packaging. The [Windows workflow](../.github/workflows/windows.yml) checks the extracted backend and bundled translation. Also smoke-test that the packaged EXE opens with its bundled Qt runtime on Windows.
 - Check layout changes with a test backend at relevant Windows display scales. Exercise collapsed and expanded states, resizing in both directions and error recovery as applicable. Use a disposable game directory for installation checks. Launch the game only with separate user authorization.
 - Keep runner paths, credentials, game files and generated captures outside the public checkout. Test observable behavior. Commit only on explicit request.
