@@ -55,7 +55,7 @@ func newWindowLayouts(group uint32) *windowLayouts {
 
 func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPNG func(resourceID) (bool, error)) error {
 	var result bytes.Buffer
-	for _, line := range strings.SplitAfter(string(data), "\n") {
+	for _, line := range strings.SplitAfter(fitWindowCaptions(instance, string(data)), "\n") {
 		if !strings.HasPrefix(strings.TrimLeft(line, " \t\r\v\f"), "<LEGACY ") {
 			result.WriteString(line)
 			continue
@@ -241,6 +241,35 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 	}
 	w.layouts = append(w.layouts, resource{layoutID(instance), []byte(output)})
 	return nil
+}
+
+func fitWindowCaptions(instance uint32, layout string) string {
+	switch instance {
+	case 0x6bc61f19: // Building Style Control
+		// Give the radio captions room for descenders while keeping their
+		// row centers and the preview images below them.
+		return strings.NewReplacer(
+			"id=0x00002000 area=(79,39,262,57)", "id=0x00002000 area=(79,37,262,59)",
+			"id=0x00002001 area=(79,160,262,178)", "id=0x00002001 area=(79,158,262,180)",
+			"id=0x00002002 area=(295,40,479,56)", "id=0x00002002 area=(295,37,479,59)",
+			"id=0x00002003 area=(295,160,470,178)", "id=0x00002003 area=(295,158,470,180)",
+			"id=0xebc61560 area=(32,21,397,39)", "id=0xebc61560 area=(32,20,397,40)",
+			"id=0xcbc61559 area=(32,45,228,61)", "id=0xcbc61559 area=(32,43,228,63)",
+			"id=0x2bc619e5 area=(15,6,357,30)", "id=0x2bc619e5 area=(15,6,357,32)",
+			"id=0x2bc619c9 area=(20,5,472,29)", "id=0x2bc619c9 area=(20,5,472,31)",
+		).Replace(layout)
+	case 0xebd0d36c: // Select a Bridge
+		return strings.Replace(layout, "area=(19,8,270,29)", "area=(19,8,270,35)", 1)
+	case 0xca539340: // Mayor Rating on the region city card
+		return strings.Replace(layout, "area=(6,68,233,86)", "area=(6,68,233,90)", 1)
+	case 0x6bc9065a: // Graphs, collapsed title and the bitmap that clips it
+		return strings.NewReplacer(
+			"area=(7,5,455,28)", "area=(7,5,455,31)",
+			"id=0x4a2871e1 area=(0,0,448,22)", "id=0x4a2871e1 area=(0,0,448,26)",
+		).Replace(layout)
+	default:
+		return layout
+	}
 }
 
 // The budget uses image-backed buttons to paint the ledger rows and
