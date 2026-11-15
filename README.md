@@ -10,20 +10,22 @@ A mod for **SimCity 4 Deluxe on Windows** with 4K support, a larger interface, a
 2. Select **Install**. If setup cannot find the Steam installation, choose the game folder.
 3. When setup finishes, select **Play** to launch **SimCity 4 Deluxe** through Steam. The mod uses your existing saves and starts at your main display’s current resolution by default.
 
-Setup requires the original Steam build 4644414. Generating missing textures with the installer requires internet access and an NVIDIA GPU that can run the model in bfloat16 through PyTorch CUDA. On AMD, you can run the installer with a complete texture cache.
+Setup requires the original Steam build 4644414. Generating missing textures requires internet access and an NVIDIA GPU with CUDA and bfloat16 support. With a complete image cache for the options you select, setup can build the game packages without an NVIDIA GPU.
 
 The full texture pack uses about 20 GiB, with additional space for the cache and downloads. Setup checks space before starting. You can close setup and reuse the same texture cache later.
 
 Setup defaults to ×2 textures downscaled from ×4. Choose ×4 in **Advanced options**.
 
+With the UHD interface enabled, you can change the window mode and resolution in the game's **Graphics Options**. Select **Accept** and restart the game to apply the changes.
+
 Choose **Русский** under **Advanced options → Game language** to use the SimCity 4 UHD Russian translation. Setup selects Russian automatically on a fresh installation when the Windows interface is in Russian. To switch back, choose **Game default** in **Configure**.
 
 By default, setup uses the `SimCity4UHDCache` folder next to the installer EXE. To reuse a cache from another location, select its folder in **Advanced options**.
 
-After installation finishes, select **Export textures** to save your cached PNGs as a ZIP. On another PC, choose **More actions → Import textures** on the first screen before installing. Setup shows progress in a separate window during both operations. A complete image cache lets setup generate the game packages without an NVIDIA GPU. To export world images from an older installation whose cache only contains compressed textures, build them once in a fresh cache.
+After installation finishes, select **Export textures** to save your cached PNGs as a ZIP. On another PC, choose **More actions → Import textures** before installing. If an older cache has only compressed world textures, build the world textures once in a fresh cache before exporting.
 
 To change a mod installed through setup, close the game, reopen setup, and select **Configure**. Change the options and select **Apply changes**. Setup keeps disabled world textures available for later use. Select **More actions → Remove mod** to remove the installation and keep the texture cache.
 
-Setup shows installation steps and errors below the progress bar. Each session is saved under `%LOCALAPPDATA%/SimCity4HD/Logs`.
+Setup shows installation steps and errors below the progress bar. Session logs are normally saved under `%LOCALAPPDATA%\SimCity4HD\Logs`.
 
 See [Advanced setup](docs/advanced.md) for building textures from source and testing in a separate profile.

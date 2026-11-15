@@ -1,6 +1,6 @@
 # Reusable Qt setup window
 
-Build this CMake project with a C++23 compiler and Qt 6 Widgets. Pass the
+Build this CMake project with a C++23 compiler and Qt 6.5 or later with Widgets. Pass the
 backend executable and the JSON product manifest to `Setup-UI` in that
 order. The backend can be implemented in Go or any language that can
 communicate over standard streams. See [the SimCity manifest](../setup.json)
@@ -10,8 +10,9 @@ The manifest needs a `product` display name. Optional `paths` describe
 directory inputs with an `id`, a `label`, and a `browse` title.
 Set `inspectOnChange` on the product directory to inspect a new selection.
 A `default` may start with an environment variable placeholder such as
-`${LOCALAPPDATA}`. Mark a path `required` to open a directory picker when
-neither the backend nor the user has supplied it. Use `options` for boolean
+`${LOCALAPPDATA}`. The portable launcher supplies `${SETUP_EXE_DIR}` as the
+directory containing the setup EXE. Mark a path `required` to prompt for a
+value if it is empty when the user starts an installation. Use `options` for boolean
 switches, each with an `id`, `label`, and boolean `default`. An optional
 `group` starts a titled group. An optional `requires` names a preceding
 checkbox. Dependent options are disabled when their parent is off.
@@ -26,9 +27,10 @@ object adds a display mode picker with a flag `id` and a `fallback` in
 `completionAction` to offer a button that opens a URL after successful
 installation or configuration.
 An optional HTTPS `projectUrl` adds a footer link with the label `projectLinkText`.
-With `checkForUpdates` enabled, setup calls the backend's `check-update`
-command in the background. It prints a newer release tag, or nothing if no
-update is available. Setup offers to open that tag on the project's releases page.
+With `checkForUpdates` enabled and an HTTPS `projectUrl` set, setup calls
+the backend's `check-update` command in the background. The command prints
+a newer release tag on stdout, or nothing if no update is available. Setup
+offers to open that tag on the project's releases page.
 
 The window invokes the backend with `inspect` at startup and `install` on
 request. Set `backendArgs` to prefix those commands (for example,
@@ -59,6 +61,8 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 
 During install, configure or an archive operation, EOF on stdin requests a pause, including when the setup
 window closes. Save resumable work before publishing the final installation.
-On a clean pause, emit `stopped` and exit. Successful installs emit
-`installed` and exit zero. Failed commands emit `error` and exit nonzero.
-`inspect` can emit `installed` if the product is already installed.
+On a clean pause, emit `stopped` and exit. Successful `install` and
+`configure` commands emit `installed` and exit zero. Successful `remove`,
+`import-textures` and `export-textures` commands emit their corresponding
+completion event and exit zero. Failed commands emit `error` and exit
+nonzero. `inspect` can emit `installed` if the product is already installed.

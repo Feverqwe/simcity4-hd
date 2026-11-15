@@ -28,7 +28,7 @@ Download `IllustrationJaNai_V3detail.zip` and extract `4x_IllustrationJaNai_V3de
 
 ### Build UI and World on Windows
 
-From a source checkout, run `go build -o simcity4-uhd-windows-amd64.exe .`. If you use a prebuilt builder, check that `ui -h` lists `-python` and `-weights`. In the same PowerShell session, go to the directory containing the builder and set the Windows paths below.
+From the repository root, run `go build -o simcity4-uhd-windows-amd64.exe .`. If you use a prebuilt builder, check that `ui -h` lists `-python` and `-weights`. In the same PowerShell session, go to the directory containing the builder and set the Windows paths below.
 
 ```powershell
 $builder = '.\simcity4-uhd-windows-amd64.exe'
@@ -69,18 +69,24 @@ to a UI build made without `-russian`.
 
 ### Install in an isolated profile
 
-Copy the game into a separate test directory and put the patched UI executable in that copy. Use a fresh profile path without spaces. The example stages both builds and copies the stock regions. You can pass one build's `Plugins` directory to stage just that build. For World on its own, keep the game executable from the copied installation.
+Create the parent directory first and choose new paths for the game copy and
+profile. The profile path must not contain spaces. This example stages both
+builds and copies the stock regions. For a single build, pass just its
+`Plugins` directory. For World on its own, skip replacing the game executable.
 
 ```powershell
 $testGame = 'C:\SC4Test\Game'
 $profile = 'C:\SC4Test\Profile'
 $renderer = 'C:\SC4Test\Renderer'
 
-if (Test-Path -LiteralPath $testGame) { throw 'Choose a fresh test game directory.' }
-Copy-Item -LiteralPath $game -Destination $testGame -Recurse
-Copy-Item -LiteralPath "$ui\SimCity4-hd.exe" -Destination "$testGame\Apps\SimCity 4.exe" -Force
+foreach ($path in @($testGame, $profile)) {
+    if (Test-Path -LiteralPath $path) { throw "Choose a new directory: $path" }
+}
+Copy-Item -LiteralPath $game -Destination $testGame -Recurse -ErrorAction Stop
+Copy-Item -LiteralPath "$ui\SimCity4-hd.exe" -Destination "$testGame\Apps\SimCity 4.exe" -Force -ErrorAction Stop
 & $builder stage-profile -renderer "$renderer\SCD3D11.dll" -renderer "$renderer\SCD3D11.ini" `
     $game $profile "$ui\Plugins" "$world\Plugins"
+if ($LASTEXITCODE -ne 0) { throw 'Could not stage the test profile.' }
 ```
 
 To use an existing region, substitute a profile template containing its `Regions` folder for the first argument to `stage-profile`.
@@ -101,7 +107,8 @@ On Mac, run `go build -o simcity4-uhd .` from the checkout and stage a separate 
 world textures with the original interface, run
 `./simcity4-uhd setup stage-world "$stock" "$world" "$copy"`.
 To include the enlarged interface, use
-`./simcity4-uhd setup stage "$stock" "$ui" "$copy" "$world"`.
+`./simcity4-uhd setup stage "$stock" "$ui" "$copy" "$world"`. Omit `"$world"`
+for an interface-only build.
 Use a fresh `.app` path for the copy and matching texture scales for UI and World.
 For Russian, build with `CGO_ENABLED=1 go build -o simcity4-uhd .` and unpack
 the translation from the checkout with
