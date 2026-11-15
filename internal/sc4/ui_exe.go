@@ -504,27 +504,41 @@ func patchUIString(data []byte, section, offset int, original, updated string) e
 
 func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
 	const (
+		heading          = 0x386e83
+		textHeading      = 0x379b80
+		buttonHeading    = 0x379ca0
 		site             = 0x3875d1
 		releaseBitmapRVA = 0x202be0
 	)
+	// Construct only the two abbreviated headings as native button labels.
+	// Both constructors take the same arguments except for the alignment enum.
+	start := base + len(stub)
+	choose := hexBytes("81be38010000ba54564a740c81be380100009e5456ea750f")
+	choose = append(choose, hexBytes("c744241800000000")...) // Centered button caption.
+	choose = append(choose, relativeInstruction(0xe8, start+len(choose), buttonHeading)...)
+	choose = append(choose, hexBytes("eb05")...)
+	choose = append(choose, relativeInstruction(0xe8, start+len(choose), textHeading)...)
+	var constructor instructionPatch
+	stub, constructor = appendStub(stub, base, heading, relativeInstruction(0xe8, heading, textHeading), choose)
+
 	entry := base + len(stub)
 	stub = append(stub, budgetTooltip...)
 	// The wide department ledger has completed its layout and HD font pass.
 	// ESI still holds its controller with the heading's parent window.
 	body := []byte{0x60} // Preserve the original caller registers.
-	for _, arg := range []uint32{0x9c1bd9, 0x414250, 0x603580, 0x90ddf1, russianBudgetTooltipGroup} {
+	for _, arg := range []uint32{0x414250, 0x603580, russianBudgetTooltipGroup} {
 		body = little.AppendUint32(append(body, 0x68), arg)
 	}
 	body = append(body, hexBytes("ffb638010000ff7610")...)
 	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
-	body = append(body, hexBytes("83c41c61")...)
+	body = append(body, hexBytes("83c41461")...)
 	markReady := hexBytes("c6460801")
 	body = append(body, markReady...)
 	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), releaseBitmapRVA)...)
 	original := append(markReady, relativeInstruction(0xe8, site+len(markReady), releaseBitmapRVA)...)
 	var patch instructionPatch
 	stub, patch = appendStub(stub, base, site, original, body)
-	return stub, append(patches, patch)
+	return stub, append(patches, constructor, patch)
 }
 
 func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {

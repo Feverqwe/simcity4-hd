@@ -51,7 +51,7 @@ var russianButtonCaptionData []byte
 var russianBudgetCaptionData []byte
 
 func russianBudgetTooltips(hud []resource) {
-	// Use the transparent tooltip label from Free Drive over the tax caption.
+	// Give the visible tax caption the game's native button-label tooltip.
 	for i := range hud {
 		layout := &hud[i]
 		if layout.id != layoutID(0xcbc3c2b9) {
@@ -63,13 +63,14 @@ func russianBudgetTooltips(hud []resource) {
 				output.WriteString(line)
 				continue
 			}
-			output.WriteString(strings.Replace(line, "winflag_ignoremouse=no", "winflag_ignoremouse=yes", 1))
 			area := driveButtonArea.FindString(line)
-			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn id=0x0cc05b9a %s "+
+			font := layoutFont.FindString(line)
+			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn %s %s captionres={6a3ff01c,cc05b9a4} "+
 				"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
-				"style=label showcaption=no fill=no autosize=no tips=yes tipsdelay=no "+
+				"style=label showcaption=yes fill=no autosize=no wrapcaption=no align=left gutters=(4,0,4,0) "+
+				"colorfontdisabled=(51,68,102) tips=yes tipsdelay=no "+
 				"tipstimeout=no tipoffsets=(0,0) tipflag=0x01000000 tipres={%08x,cc05b9a4} >\n",
-				area, russianBudgetTooltipGroup)
+				area, font, russianBudgetTooltipGroup)
 		}
 		layout.data = []byte(output.String())
 	}
