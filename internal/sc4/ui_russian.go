@@ -50,6 +50,19 @@ var russianButtonCaptionData []byte
 //go:embed localization/ru/budget-captions.json
 var russianBudgetCaptionData []byte
 
+//go:embed localization/ru/static-captions.json
+var russianStaticCaptionData []byte
+
+func russianTooltipLabel(out *strings.Builder, area, font, showCaption, color, caption, tip string) {
+	// The game's disabled label style supports hover without button activation.
+	fmt.Fprintf(out, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn %s %s captionres={%s} "+
+		"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
+		"style=label showcaption=%s fill=no autosize=no wrapcaption=no align=left gutters=(4,0,4,0) "+
+		"colorfontdisabled=(%s) tips=yes tipsdelay=no "+
+		"tipstimeout=no tipoffsets=(0,0) tipflag=0x01000000 tipres={%s} >\n",
+		area, font, caption, showCaption, color, tip)
+}
+
 func russianBudgetTooltips(hud []resource) {
 	// Give the visible tax caption the game's native button-label tooltip.
 	for i := range hud {
@@ -63,14 +76,8 @@ func russianBudgetTooltips(hud []resource) {
 				output.WriteString(line)
 				continue
 			}
-			area := driveButtonArea.FindString(line)
-			font := layoutFont.FindString(line)
-			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn %s %s captionres={6a3ff01c,cc05b9a4} "+
-				"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
-				"style=label showcaption=yes fill=no autosize=no wrapcaption=no align=left gutters=(4,0,4,0) "+
-				"colorfontdisabled=(51,68,102) tips=yes tipsdelay=no "+
-				"tipstimeout=no tipoffsets=(0,0) tipflag=0x01000000 tipres={%08x,cc05b9a4} >\n",
-				area, font, russianBudgetTooltipGroup)
+			russianTooltipLabel(&output, driveButtonArea.FindString(line), layoutFont.FindString(line),
+				"yes", "51,68,102", "6a3ff01c,cc05b9a4", fmt.Sprintf("%08x,cc05b9a4", russianBudgetTooltipGroup))
 		}
 		layout.data = []byte(output.String())
 	}
@@ -86,6 +93,58 @@ func encodeLocaleText(text string) []byte {
 }
 
 var buttonCaptionReference = regexp.MustCompile(`\bcaptionres=\{([[:xdigit:]]{8}),[ \t]*([[:xdigit:]]{8})\}`)
+
+func russianStaticCaptionEntries(hud []resource) ([]resource, error) {
+	var captions map[string]string
+	if err := json.Unmarshal(russianStaticCaptionData, &captions); err != nil {
+		return nil, fmt.Errorf("parse Russian static captions: %w", err)
+	}
+	entries := make(map[resourceID]string)
+	var result []resource
+	for i := range hud {
+		layout := &hud[i]
+		if layout.id != layoutID(layout.id.instance) {
+			continue
+		}
+		var output strings.Builder
+		for _, line := range strings.SplitAfter(string(layout.data), "\n") {
+			ref := buttonCaptionReference.FindStringSubmatch(line)
+			if ref == nil || !strings.Contains(line, "clsid=GZWinText ") ||
+				!strings.Contains(line, " notify=no ") || !strings.Contains(line, " wrapped=no ") ||
+				!strings.Contains(line, "winflag_visible=yes") {
+				output.WriteString(line)
+				continue
+			}
+			full := strings.ToLower(ref[1] + "," + ref[2])
+			short, ok := captions[full]
+			if !ok {
+				output.WriteString(line)
+				continue
+			}
+			area, font := driveButtonArea.FindString(line), layoutFont.FindString(line)
+			if area == "" || font == "" {
+				return nil, fmt.Errorf("unexpected layout for Russian static caption %08x/%s", layout.id.instance, full)
+			}
+			instance, _ := strconv.ParseUint(ref[2], 16, 32)
+			id := resourceID{0x2026960b, hdUITextGroup, uint32(instance)}
+			if previous, exists := entries[id]; exists {
+				if previous != short {
+					return nil, fmt.Errorf("conflicting Russian static caption %s", full)
+				}
+			} else {
+				entries[id] = short
+				result = append(result, resource{id, encodeLocaleText(short)})
+			}
+			reference := fmt.Sprintf("%08x,%08x", id.group, id.instance)
+			output.WriteString(strings.Replace(line, ref[0], "captionres={"+reference+"}", 1))
+			// Keep the native text window and its ID. A transparent label in
+			// the same rectangle supplies only the tooltip.
+			russianTooltipLabel(&output, area, font, "no", "0,0,0", reference, full)
+		}
+		layout.data = []byte(output.String())
+	}
+	return result, nil
+}
 
 // Some menu labels share localization keys with headings and graph titles.
 // Keep the full localization key available to the button's native tooltip.

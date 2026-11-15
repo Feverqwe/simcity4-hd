@@ -655,6 +655,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	} else {
 		if !mac {
 			russianBudgetTooltips(hud)
+			captions, err := russianStaticCaptionEntries(hud)
+			if err != nil {
+				return err
+			}
+			russianText = append(russianText, captions...)
 		}
 		resized := make(map[resourceID][]byte, len(tutorial)+len(credits))
 		for _, entry := range append(tutorial, credits...) {
