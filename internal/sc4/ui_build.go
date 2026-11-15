@@ -524,6 +524,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	executable, err = patchGameUIExecutable(executable, mac, *textureScale, uiExecutableOptions{
 		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap,
+		russianBudgetTips: !mac && *russian != "",
 	})
 	if err != nil {
 		return err
@@ -628,6 +629,9 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 			packages = append(packages, uiPackage{"credits-text.dat", credits})
 		}
 	} else {
+		if !mac {
+			russianBudgetTooltips(hud)
+		}
 		resized := make(map[resourceID][]byte, len(tutorial)+len(credits))
 		for _, entry := range append(tutorial, credits...) {
 			resized[entry.id] = entry.data

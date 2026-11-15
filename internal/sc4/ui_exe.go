@@ -24,6 +24,9 @@ var budgetTreeScale []byte
 //go:embed patchsrc/ui_budget_slider.i386
 var budgetSliderArt []byte
 
+//go:embed patchsrc/ui_budget_tooltip.i386
+var budgetTooltip []byte
+
 //go:embed patchsrc/ui_import_node_font.i386
 var importNodeFont []byte
 
@@ -37,9 +40,10 @@ var scrollPlaylist []byte
 var prepareDisasterBackground []byte
 
 type uiExecutableOptions struct {
-	hdCursors      bool
-	loadingPreview bool
-	regionMap      bool
+	hdCursors         bool
+	loadingPreview    bool
+	regionMap         bool
+	russianBudgetTips bool
 }
 
 type instructionPatch struct {
@@ -291,6 +295,9 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	patches = append(patches, zodiacArrow)
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
+	if options.russianBudgetTips {
+		stub, patches = appendBudgetTooltipPatch(stub, patches, stubRVA)
+	}
 	if textureScale == 4 {
 		var gauges instructionPatch
 		// Free Drive gauges select a stock frame at runtime. Stretch the
@@ -438,6 +445,25 @@ func patchUIString(data []byte, section, offset int, original, updated string) e
 	clear(slot)
 	copy(slot, updated)
 	return nil
+}
+
+func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
+	const site = 0x386efe
+	entry := base + len(stub)
+	stub = append(stub, budgetTooltip...)
+	// Build the stock heading first. ESI holds the department controller
+	// with the parent window and service for the optional last column.
+	body := relativeInstruction(0xe8, base+len(stub), 0x379b80)
+	body = append(body, 0x60) // Preserve the original caller registers.
+	for _, arg := range []uint32{0x414250, 0x603580, 0x90ddf1, russianBudgetTooltipGroup} {
+		body = little.AppendUint32(append(body, 0x68), arg)
+	}
+	body = append(body, hexBytes("ffb638010000ff7610")...)
+	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
+	body = append(body, hexBytes("83c41861")...)
+	var patch instructionPatch
+	stub, patch = appendStub(stub, base, site, relativeInstruction(0xe8, site, 0x379b80), body)
+	return stub, append(patches, patch)
 }
 
 func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {

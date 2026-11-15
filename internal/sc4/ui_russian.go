@@ -42,9 +42,47 @@ func readRussianFonts(dir string) (map[string][]byte, error) {
 const russianTextPackage = "russian-text.dat"
 
 const russianButtonCaptionGroup = 0xe74a40ca
+const russianBudgetTooltipGroup = 0xe74a40cb
 
 //go:embed localization/ru/button-captions.json
 var russianButtonCaptionData []byte
+
+//go:embed localization/ru/budget-captions.json
+var russianBudgetCaptionData []byte
+
+func russianBudgetTooltips(hud []resource) {
+	// The renderer and mouse router already support an invisible disabled
+	// button that receives hover events. Keep the original tax caption and
+	// its neighbors in place and put the tip inside the caption's rectangle.
+	for i := range hud {
+		layout := &hud[i]
+		if layout.id != layoutID(0xcbc3c2b9) {
+			continue
+		}
+		var output strings.Builder
+		for _, line := range strings.SplitAfter(string(layout.data), "\n") {
+			output.WriteString(line)
+			if !strings.Contains(line, "captionres={6a3ff01c,cc05b9a4}") {
+				continue
+			}
+			area := driveButtonArea.FindString(line)
+			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn id=0x0cc05b9a %s "+
+				"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
+				"showcaption=no fill=no autosize=no tips=yes tipsdelay=yes tipres={%08x,cc05b9a4} >\n",
+				area, russianBudgetTooltipGroup)
+		}
+		layout.data = []byte(output.String())
+	}
+}
+
+func russianCaption(text string) []byte {
+	units := utf16.Encode([]rune(text))
+	data := little.AppendUint32(nil, 0x10000000|uint32(len(units)))
+	for _, unit := range units {
+		data = little.AppendUint16(data, unit)
+	}
+	return data
+}
 
 var buttonCaptionReference = regexp.MustCompile(`\bcaptionres=\{([[:xdigit:]]{8}),[ \t]*([[:xdigit:]]{8})\}`)
 
@@ -79,12 +117,7 @@ func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
 			instance, _ := strconv.ParseUint(ref[2], 16, 32)
 			id := resourceID{0x2026960b, russianButtonCaptionGroup, uint32(instance)}
 			if !added[id] {
-				units := utf16.Encode([]rune(caption))
-				data := little.AppendUint32(nil, 0x10000000|uint32(len(units)))
-				for _, unit := range units {
-					data = little.AppendUint16(data, unit)
-				}
-				entries = append(entries, resource{id, data})
+				entries = append(entries, resource{id, russianCaption(caption)})
 				added[id] = true
 			}
 			lines[j] = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
@@ -98,6 +131,10 @@ func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
 }
 
 func russianUI(localePath string) ([]resource, error) {
+	var budgetCaptions map[string]string
+	if err := json.Unmarshal(russianBudgetCaptionData, &budgetCaptions); err != nil {
+		return nil, fmt.Errorf("parse Russian budget captions: %w", err)
+	}
 	locale, err := openArchive(localePath)
 	if err != nil {
 		return nil, err
@@ -120,6 +157,14 @@ func russianUI(localePath string) ([]resource, error) {
 		for i := 4; !hasCyrillic && i < len(data); i += 2 {
 			unit := little.Uint16(data[i:])
 			hasCyrillic = unit >= 0x0410 && unit <= 0x044f
+		}
+		if r.id.group == 0x6a3ff01c {
+			if caption, ok := budgetCaptions[fmt.Sprintf("%08x", r.id.instance)]; ok {
+				tooltip := r.id
+				tooltip.group = russianBudgetTooltipGroup
+				entries = append(entries, resource{tooltip, data})
+				data = russianCaption(caption)
+			}
 		}
 		entries = append(entries, resource{r.id, data})
 	}
