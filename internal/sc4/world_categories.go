@@ -34,12 +34,6 @@ func categoryTextureSupported(category worldCategory, data []byte) bool {
 	if err != nil {
 		return false
 	}
-	// Farm fields and other multi-frame lot textures can show corrupt
-	// tiles in the game after enlarging the frames. Keep the stock set
-	// across all zooms until the runtime upload path is verified.
-	if category.name == "lot" && len(elements) != 1 {
-		return false
-	}
 	placed := false
 	for _, e := range elements {
 		if category.placement {
