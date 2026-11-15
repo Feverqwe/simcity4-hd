@@ -16,7 +16,7 @@ type uiStock struct {
 func indexUIStock(stock *archive) uiStock {
 	index := make(map[resourceID]resourceLocation)
 	for _, r := range stock.records {
-		if r.id.kind == 0 || r.id.kind == uiImage {
+		if r.id.kind == 0 || r.id.kind == uiImage || r.id.kind == keyConfigType {
 			index[r.id] = resourceLocation{stock, r}
 		}
 	}
@@ -94,8 +94,8 @@ func (s uiStock) windowGroups(scaleStartup bool) ([]windowGroup, error) {
 	return groups, nil
 }
 
-func buildWindowEntries(stock uiStock, config string, graphics4K, scaleStartup bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
-	groups, err := stock.windowGroups(scaleStartup)
+func buildWindowEntries(stock uiStock, config string, graphics4K, windows bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]resource, string, error) {
+	groups, err := stock.windowGroups(windows)
 	if err != nil {
 		return nil, "", err
 	}
@@ -108,6 +108,12 @@ func buildWindowEntries(stock uiStock, config string, graphics4K, scaleStartup b
 			data, err := stock.read(id)
 			if err != nil {
 				return nil, "", err
+			}
+			if windows && instance == playOptionsLayout {
+				data, err = keyboardHelpLayout(stock, data)
+				if err != nil {
+					return nil, "", err
+				}
 			}
 			if err := window.add(instance, data, textureScale, stock.isPNG); err != nil {
 				return nil, "", err

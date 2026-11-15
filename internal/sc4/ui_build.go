@@ -75,8 +75,8 @@ func (a uiArtwork) upscale(spec layoutAtlas, original []byte) ([]byte, error) {
 	return projectUIArtworkWithAlpha(original, data, widths, originalAlpha, false)
 }
 
-func buildHUD(game string, stock uiStock, art uiArtwork, scaleStartup bool) ([]resource, error) {
-	if scaleStartup {
+func buildHUD(game string, stock uiStock, art uiArtwork, windows bool) ([]resource, error) {
+	if windows {
 		intro, err := openArchive(filepath.Join(game, "Intro.dat"))
 		if err != nil {
 			return nil, err
@@ -100,11 +100,11 @@ func buildHUD(game string, stock uiStock, art uiArtwork, scaleStartup bool) ([]r
 	if err != nil {
 		return nil, err
 	}
-	windows, config, err := buildWindowEntries(stock, config, false, scaleStartup, art.scale, art.upscale)
+	layouts, config, err := buildWindowEntries(stock, config, false, windows, art.scale, art.upscale)
 	if err != nil {
 		return nil, err
 	}
-	entries = append(entries, windows...)
+	entries = append(entries, layouts...)
 	config, err = scaleRuntimeFonts(config, string(font), true)
 	if err != nil {
 		return nil, err
@@ -581,6 +581,11 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 		return fmt.Errorf("build HUD: %w", err)
 	}
 	if !mac {
+		help, err := keyboardHelpEntries(stockUI, *russian != "")
+		if err != nil {
+			return fmt.Errorf("build keyboard shortcuts: %w", err)
+		}
+		hud = append(hud, help...)
 		progress.report("Driving gauges")
 		gauges, err := driveGaugeEntries(stockUI, art)
 		if err != nil {

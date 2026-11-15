@@ -361,6 +361,7 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
 	stub, patches = appendEditorDecimalPatches(stub, patches, stubRVA)
+	stub, patches = appendKeyboardHelpPatch(stub, patches, stubRVA)
 	if options.russianBudgetTips {
 		stub, patches = appendBudgetTooltipPatch(stub, patches, stubRVA)
 	}

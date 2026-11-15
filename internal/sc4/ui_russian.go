@@ -76,7 +76,7 @@ func russianBudgetTooltips(hud []resource) {
 	}
 }
 
-func russianCaption(text string) []byte {
+func encodeLocaleText(text string) []byte {
 	units := utf16.Encode([]rune(text))
 	data := little.AppendUint32(nil, 0x10000000|uint32(len(units)))
 	for _, unit := range units {
@@ -118,7 +118,7 @@ func russianButtonCaptionEntries(hud []resource, windows bool) ([]resource, erro
 			instance, _ := strconv.ParseUint(ref[2], 16, 32)
 			id := resourceID{0x2026960b, russianButtonCaptionGroup, uint32(instance)}
 			if !added[id] {
-				entries = append(entries, resource{id, russianCaption(caption)})
+				entries = append(entries, resource{id, encodeLocaleText(caption)})
 				added[id] = true
 			}
 			line = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
@@ -172,7 +172,7 @@ func russianUI(localePath string) ([]resource, error) {
 				tooltip := r.id
 				tooltip.group = russianBudgetTooltipGroup
 				entries = append(entries, resource{tooltip, data})
-				data = russianCaption(caption)
+				data = encodeLocaleText(caption)
 			}
 		}
 		entries = append(entries, resource{r.id, data})
