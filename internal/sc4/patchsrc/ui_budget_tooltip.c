@@ -24,13 +24,12 @@ typedef Byte (TC *SetFlag)(Object *, U32, Byte);
 typedef Byte (TC *SetStyle)(Object *, U32, Object *, const Rect *);
 typedef Byte (TC *SetTipFlags)(Object *, U32);
 typedef Byte (TC *SetTooltip)(Object *, const TextResource *);
-typedef void (TC *AddChild)(Object *, Object *);
+typedef Byte (TC *AddChild)(Object *, Object *);
 typedef void (TC *LoadText)(TextResource *, U32, U32, U32);
 typedef void (TC *CloseText)(TextResource *);
 typedef Object *(*GetFactory)(void);
 
-// Called after the text constructor and before the budget tree doubles
-// every control. Use the same transparent label as the Free Drive speedometer.
+// Attach the hover target after the ledger has its final layout and font.
 void addBudgetTooltip(Object *parent, U32 service, U32 tooltipGroup,
                       GetFactory getFactory, LoadText loadText, CloseText closeText,
                       MeasureText measureText) {
@@ -61,14 +60,17 @@ void addBudgetTooltip(Object *parent, U32 service, U32 tooltipGroup,
                 Object *window = METHOD(button, 0x0c, GetWindow)(button);
                 METHOD(button, 0x30, SetStyle)(button, 1, 0, 0); // Label with no image.
                 METHOD(button, 0x14, SetFlag)(button, 0x10, 1); // No button face.
+                METHOD(button, 0x14, SetFlag)(button, 0x200, 1); // Show on mouse enter.
                 METHOD(button, 0x14, SetFlag)(button, 0x400, 0); // No tooltip timeout.
-                METHOD(window, 0x110, SetFlag)(window, 0x2, 0); // Mouse movement only.
+                METHOD(window, 0x110, SetFlag)(window, 0x2, 0); // Hover without clicks.
                 METHOD(window, 0x110, SetFlag)(window, 0x8000, 0); // No keyboard focus.
                 METHOD(window, 0x110, SetFlag)(window, 0x10000, 0); // Paint directly on the parent.
                 if (METHOD(button, 0x8c, SetTooltip)(button, &tip)) {
                     METHOD(button, 0x98, SetTipFlags)(button, 0x01000000); // Center above the label.
                     METHOD(window, 0xdc, SetArea)(window, left, area->top, area->right, area->bottom);
-                    METHOD(parent, 0x38, AddChild)(parent, window);
+                    // Leave the visible caption's hover surface to the tooltip label.
+                    if (METHOD(parent, 0x38, AddChild)(parent, window))
+                        METHOD(caption, 0x110, SetFlag)(caption, 0x200000, 1);
                 }
                 METHOD(button, 0x08, Release)(button);
             }

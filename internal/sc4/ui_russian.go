@@ -59,14 +59,15 @@ func russianBudgetTooltips(hud []resource) {
 		}
 		var output strings.Builder
 		for _, line := range strings.SplitAfter(string(layout.data), "\n") {
-			output.WriteString(line)
 			if !strings.Contains(line, "captionres={6a3ff01c,cc05b9a4}") {
+				output.WriteString(line)
 				continue
 			}
+			output.WriteString(strings.Replace(line, "winflag_ignoremouse=no", "winflag_ignoremouse=yes", 1))
 			area := driveButtonArea.FindString(line)
 			fmt.Fprintf(&output, "   <LEGACY clsid=GZWinBtn iid=IGZWinBtn id=0x0cc05b9a %s "+
 				"winflag_visible=yes winflag_enabled=no winflag_pbuff=no winflag_acceptfocus=no "+
-				"style=label showcaption=no fill=no autosize=no tips=yes tipsdelay=yes "+
+				"style=label showcaption=no fill=no autosize=no tips=yes tipsdelay=no "+
 				"tipstimeout=no tipoffsets=(0,0) tipflag=0x01000000 tipres={%08x,cc05b9a4} >\n",
 				area, russianBudgetTooltipGroup)
 		}

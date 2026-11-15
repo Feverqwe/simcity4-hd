@@ -503,21 +503,27 @@ func patchUIString(data []byte, section, offset int, original, updated string) e
 }
 
 func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
-	const site = 0x386efe
+	const (
+		site             = 0x3875d1
+		releaseBitmapRVA = 0x202be0
+	)
 	entry := base + len(stub)
 	stub = append(stub, budgetTooltip...)
-	// Build the stock heading first. ESI holds the department controller
-	// with the parent window and service for the optional last column.
-	body := relativeInstruction(0xe8, base+len(stub), 0x379b80)
-	body = append(body, 0x60) // Preserve the original caller registers.
+	// The wide department ledger has completed its layout and HD font pass.
+	// ESI still holds its controller with the heading's parent window.
+	body := []byte{0x60} // Preserve the original caller registers.
 	for _, arg := range []uint32{0x9c1bd9, 0x414250, 0x603580, 0x90ddf1, russianBudgetTooltipGroup} {
 		body = little.AppendUint32(append(body, 0x68), arg)
 	}
 	body = append(body, hexBytes("ffb638010000ff7610")...)
 	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
 	body = append(body, hexBytes("83c41c61")...)
+	markReady := hexBytes("c6460801")
+	body = append(body, markReady...)
+	body = append(body, relativeInstruction(0xe8, base+len(stub)+len(body), releaseBitmapRVA)...)
+	original := append(markReady, relativeInstruction(0xe8, site+len(markReady), releaseBitmapRVA)...)
 	var patch instructionPatch
-	stub, patch = appendStub(stub, base, site, relativeInstruction(0xe8, site, 0x379b80), body)
+	stub, patch = appendStub(stub, base, site, original, body)
 	return stub, append(patches, patch)
 }
 
