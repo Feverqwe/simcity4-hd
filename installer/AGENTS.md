@@ -1,22 +1,22 @@
 # Installer agent guide
 
-## Project boundaries
+## Boundaries
 
-- Keep the installer as a separate subproject. The Qt Widgets frontend in `qt/` communicates with an already built backend executable through the [manifest and process contract](qt/README.md). Put product branding and options in the manifest, and keep Steam discovery, texture processing, and game modifications in the SimCity Go backend under `../internal/sc4/`.
-- Keep the Windows deliverable a single portable EXE. The [packaging script](package.ps1) embeds the verified backend and Qt runtime. The Qt SDK, CMake, and MinGW are build-time requirements. Resize the banner for the installer during packaging and keep the source image available for the main README.
-- Apply the mod to the existing Steam game directory so the user can play through Steam. Keep the default HD setup and write editable settings where the relevant DLL reads them. Use the game's existing profile and avoid Windows installer registration, persistent services, and installer shortcuts.
+- Keep the installer a separate subproject. The Qt Widgets frontend calls the built Go backend through the [manifest and process contract](qt/README.md). Define product branding and options in the manifest. Keep Steam discovery, texture processing and game modifications in the SimCity backend under `../internal/sc4/`.
+- Ship one portable Windows EXE containing the verified backend and Qt runtime. Prepare the banner at packaging time and keep the source image available for the public README.
+- Apply the default HD setup to the existing Steam installation and keep the existing game profile. Write editable settings where the relevant DLL reads them. Launch the game through Steam. Keep setup portable by avoiding Windows installer registration, persistent services and installer shortcuts.
 
-## User flow and layout
+## User flow
 
-- Make **Install** the normal path. Detect the game and use sensible defaults. Ask for a required value only when detection fails or validation needs user input. Keep directory overrides, resolution, and grouped checkboxes in **Advanced options**. Keep interface upscaling selectable separately from world textures.
-- Inspect the game folder at startup and when the user selects another one. Load the installed options before offering **Configure** or **Remove mod**. Reuse assembled packages and preserve the texture cache across both operations.
-- Separate the start, progress, and completion screens. After a successful operation, offer **Close** and **Back to start**. After installing or applying settings, also offer **Play** to launch through Steam. Returning to the start runs a fresh inspection.
-- Follow the Windows system theme and keep standard Qt styles for controls, dialogs, and scrolling. Use the branded banner as the product title. Keep the status and disclosure at the top and the action row at the bottom. Let the Advanced list take the available height, grow the window only as needed to fit it, and preserve the user's chosen window size when possible.
-- Show the current operation, progress, and inline log during installation. Let the log grow vertically when the user resizes the window. Save diagnostic logs for each run. Keep Advanced hidden while installation is running or paused. For a field error, show a dialog with the reason, open Advanced, and highlight the affected field. Offer **Retry** and **Cancel** for other installation errors. Keep **Install** as the primary action after a failed attempt.
-- Check disk space before expensive work, including the cache and destination. Preserve completed upscale work in the cache across pauses and retries. Report failures through the backend contract and keep partial output from being published as a completed install.
+- Make **Install** the default path. Detect the game, choose defaults and prompt only when a required value is missing or invalid. Put directory overrides, resolution and grouped controls under **Advanced options**. Keep UI upscaling and world textures independently selectable.
+- Inspect the game folder on startup and when the selection changes. Load installed settings before offering **Configure** or **Remove mod**. Reuse assembled packages where applicable and preserve the texture cache across both operations.
+- Keep setup, progress and completion distinct. After success, offer **Close** and **Back to start**, with **Play** after installation or configuration. Refresh the inspection when returning to the start.
+- Use the Windows theme and standard Qt controls. Use the banner as the title, place status and disclosure above the content and keep actions at the bottom. Let Advanced and the progress log use available height and preserve the user's window size where possible.
+- Show the current step, progress and inline log. Save diagnostics per run and hide Advanced while an operation is active or paused. For a field error, show the reason, open Advanced and highlight the affected field. For retryable operation failures, offer **Retry** and **Cancel**. Keep **Install** available after a failed initial install.
+- Check free space for the cache and destination before expensive work. Preserve completed cache work on pause and retry. Report failures through the backend contract and publish the installation only after it completes.
 
 ## Verification
 
-- Use the [installer README](README.md) and the [Windows workflow](../.github/workflows/windows.yml) for build commands. Verify the packaged EXE by extracting it, comparing the embedded backend with the build input, and opening the window with the bundled Qt runtime.
-- Verify layout changes on Windows with a test backend. Cover collapsed and expanded states, vertical and horizontal resize, display scaling, and error recovery as applicable. Use a disposable game directory for installation checks. Launch the game only with separate user authorization.
-- Keep runner paths, credentials, game files, and generated captures out of the public checkout. Check observable behavior and avoid tests tied to private widget names or pixel snapshots. Commit only on request.
+- Use the [installer build guide](README.md) and [Windows workflow](../.github/workflows/windows.yml) for packaging. On Windows, verify that the packaged EXE extracts the expected backend and opens with the bundled Qt runtime.
+- Check layout changes with a test backend at relevant Windows display scales. Exercise collapsed and expanded states, resizing in both directions and error recovery as applicable. Use a disposable game directory for installation checks. Launch the game only with separate user authorization.
+- Keep runner paths, credentials, game files and generated captures outside the public checkout. Test observable behavior. Commit only on explicit request.
