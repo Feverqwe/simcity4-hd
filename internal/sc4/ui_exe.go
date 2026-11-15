@@ -140,6 +140,19 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		instruction(0x3eaeef, "6a056a2c6a2c8bceff5030", "6a0a6a586a588bceff5030"),
 		instruction(0x3e72a4, "6a056a2c6a2c8bceff5230", "6a0a6a586a588bceff5230"),
 		instruction(0x3f4d19, "68a264258a", "68c3404ae7"),
+		// Query help has a bottom offset. Route Query sits inside
+		// the upper-right corner of its parent.
+		instruction(0x3edfa2, "8d4205", "8d420a"),
+		instruction(0x3edfa7, "83c70b", "83c716"),
+		instruction(0x3ecff3, "6a08", "6a10"),
+		instruction(0x3ed003, "b9f8ffffff", "b9f0ffffff"),
+		// Reopening a movable dialog can restore a saved position. Scale
+		// the visible margin and the fallback used for off-screen positions.
+		instruction(0x203796, "83c3f8", "83c3f0"),
+		instruction(0x2037a1, "83c7f8", "83c7f0"),
+		instruction(0x2037aa, "83fd08", "83fd10"),
+		instruction(0x2037b1, "83f808", "83f810"),
+		instruction(0x2037cd, "6a086a08", "6a106a10"),
 		// Runtime HUD controls use image IDs and sizes outside the layouts.
 		instruction(0x3ee037, "c7442440b006a046c744244488452453", "c7442440bd404ae7c744244488452453"),
 		instruction(0x3ee15a, "83e81c506a0c", "83e838506a18"),
@@ -166,6 +179,11 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		instruction(0x3b6bf7, "83c004", "83c008"),
 		instruction(0x3b6bfa, "83c104", "83c108"),
 	}
+	// The tutorial exit menu overwrites the layout's authored origin.
+	var tutorialExit instructionPatch
+	stub, tutorialExit = appendStub(stub, stubRVA, 0x41f82,
+		hexBytes("6a786a32ff90e0000000"), hexBytes("68f00000006a64ff90e0000000"))
+	patches = append(patches, tutorialExit)
 	for _, site := range []int{0x3b7ba9, 0x3b7bc5, 0x3b7bdd, 0x3b7bfd, 0x3b7c21,
 		0x3b7c42, 0x3b7c62, 0x3b7c86, 0x3b7caa, 0x3b7cce} {
 		patches = append(patches, instructionPatch{site,
@@ -464,6 +482,12 @@ func appendBudgetTooltipPatch(stub []byte, patches []instructionPatch, base int)
 }
 
 func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {
+	// Keep the gaps between the tabs, main ledger and finance controls
+	// when the game rebuilds the Budget window.
+	patches = append(patches,
+		instruction(0x369583, "83c002", "83c004"),
+		instruction(0x3695a6, "83c008", "83c010"),
+	)
 	// This constructor is shared by the four dynamically built budget
 	// slider paths. Give the stock slider the projected four-state atlas.
 	var budgetSlider instructionPatch

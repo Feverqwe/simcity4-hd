@@ -16,7 +16,6 @@ var (
 	layoutImage      = regexp.MustCompile(`\bimage=\{([a-fA-F0-9]+),\s*([a-fA-F0-9]+)\}`)
 	layoutGeometry   = regexp.MustCompile(`\b(area|imagerect|gutters|tipoffsets|scrollbargutters)=\((-?\d+(?:,-?\d+)+)\)`)
 	layoutFont       = regexp.MustCompile(`\b(?:font|rootfont)=([A-Za-z][A-Za-z0-9_]*)`)
-	advisorRoot      = regexp.MustCompile(`(?m)^(<LEGACY [^\r\n]*? id=0x(?:6a15c767|aa15ef06|2a1d96b1) area=)\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\)`)
 )
 
 var uiFontID = resourceID{0, 0x4a87bfe8, 0x2a87bffc}
@@ -236,17 +235,7 @@ func (w *windowLayouts) add(instance uint32, data []byte, textureScale int, isPN
 		})
 		result.WriteString(line)
 	}
-	output := result.String()
-	if instance == 0x4a160034 || instance == 0xcbc905cd {
-		if len(advisorRoot.FindAllStringIndex(output, -1)) != 3 {
-			return fmt.Errorf("%s: expected three advisor window roots", layoutID(instance))
-		}
-		output = advisorRoot.ReplaceAllStringFunc(output, func(root string) string {
-			m := advisorRoot.FindStringSubmatch(root)
-			return fmt.Sprintf("%s(%s,%d,%s,%d)", m[1], m[2], layoutNumber(m[3])-80, m[4], layoutNumber(m[5])-80)
-		})
-	}
-	w.layouts = append(w.layouts, resource{layoutID(instance), []byte(output)})
+	w.layouts = append(w.layouts, resource{layoutID(instance), result.Bytes()})
 	return nil
 }
 
