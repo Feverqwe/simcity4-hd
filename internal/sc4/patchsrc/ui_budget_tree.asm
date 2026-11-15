@@ -18,13 +18,15 @@ scale_window:
     movsd
     movsd
 
-    # Ordinances also returns through this hook when it opens the
-    # separately scaled empty message. Only scale the 450 px ledger.
-    cmp dword ptr [ebp + 12], 2
-    jne enum_window
+    # The second argument is zero for children, one for an unguarded
+    # top-level window, or the stock ledger width when the same exit
+    # can return the separately scaled empty message.
+    mov edx, [ebp + 12]
+    cmp edx, 1
+    jbe enum_window
     mov eax, [esp + 8]
     sub eax, [esp]
-    cmp eax, 450
+    cmp eax, edx
     jne window_done
 enum_window:
     # Get a position-independent pointer to the enumeration callback.

@@ -486,6 +486,8 @@ func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int)
 		instruction(0x37c2b5, "68b4550114", "6860624114"),
 		instruction(0x37c2ba, "6a0b680d010000", "6a12681a020000"))
 
+	stub, patches = appendOrdinanceDetailsPatch(stub, patches, stubRVA)
+
 	// The funding refresh recomputes the marker's X in stock units.
 	// Its Y already comes from the resized control.
 	var budgetMarker instructionPatch
@@ -511,25 +513,43 @@ func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int)
 		patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
 	}
 
-	// Resize the completed department windows after their controls
-	// have been constructed. Empty sections return earlier.
+	// Neighbor Deals reassigns the row fonts as the income and expense lists scroll.
+	for _, site := range []int{
+		0x3826eb, 0x3827b1, 0x382841, 0x382f3a, 0x383000, 0x383090,
+		0x383615, 0x3836da, 0x383769, 0x383f32, 0x383ff7, 0x384086,
+		0x384615, 0x3846db, 0x38476b, 0x384cf5, 0x384dbb, 0x384e4b,
+	} {
+		patches = append(patches, instruction(site, "6806d385ea", "68e3272344"))
+	}
+	for _, site := range []int{
+		0x382b1e, 0x382b99, 0x382c55, 0x383226, 0x3832a1, 0x38335d,
+		0x383902, 0x383990, 0x383a3f, 0x38421f, 0x3842ad, 0x38435c,
+		0x384901, 0x38497c, 0x384a38, 0x384fe1, 0x38505c, 0x385118,
+	} {
+		patches = append(patches, instruction(site, "6805d385ea", "68ca29131d"))
+	}
+
+	// Resize the completed ledger windows. The shared Ordinances and
+	// Neighbor Deals exits can also receive an already-scaled message.
 	budgetScaleRVA := stubRVA + len(stub)
 	stub = append(stub, budgetTreeScale...)
 	for _, layout := range []struct {
-		site int
-		root byte
-		mode byte
-		next string
+		site  int
+		root  byte
+		width uint32
+		next  string
 	}{
-		{0x3875ca, 0x57, 1, "8d8c2418010000"}, // 650 px dialog, EDI
-		{0x38976c, 0x55, 1, "8d8c2458010000"}, // 500 px dialog, EBP
-		{0x387c47, 0x55, 2, "8d8c2428010000"}, // 450 px Ordinances, EBP
+		{0x3875ca, 0x57, 1, "8d8c2418010000"},   // 650 px dialog, EDI
+		{0x38976c, 0x55, 1, "8d8c2458010000"},   // 500 px dialog, EBP
+		{0x387c47, 0x55, 450, "8d8c2428010000"}, // Ordinances, EBP
+		{0x387d62, 0x55, 500, "8d8c2428010000"}, // Neighbor Deals, EBP
 	} {
 		const fontManagerRVA = 0x513c72
 		start := stubRVA + len(stub)
 		body := []byte{0x50} // Preserve EAX across the adapter.
 		body = append(body, relativeInstruction(0xe8, start+len(body), fontManagerRVA)...)
-		body = append(body, 0x50, 0x6a, layout.mode, layout.root) // Font manager, center flag, dialog.
+		body = little.AppendUint32(append(body, 0x50, 0x68), layout.width) // Font manager and expected width.
+		body = append(body, layout.root)
 		body = append(body, relativeInstruction(0xe8, start+len(body), budgetScaleRVA)...)
 		body = append(body, hexBytes("83c40c58")...) // Drop arguments, restore EAX.
 		body = append(body, hexBytes(layout.next)...)
@@ -538,6 +558,36 @@ func appendBudgetUIPatches(stub []byte, patches []instructionPatch, stubRVA int)
 		patches = append(patches, budgetTree)
 	}
 	return stub, patches
+}
+
+func appendOrdinanceDetailsPatch(stub []byte, patches []instructionPatch, stubRVA int) ([]byte, []instructionPatch) {
+	// Open Details builds a new window for the selected ordinance. Set
+	// the pane size before the stock text constructor wraps the body.
+	for _, block := range []struct {
+		site          int
+		before, after string
+	}{
+		// The controller still holds the stock width of the Ordinances ledger.
+		{0x38b99d, "8b116a7d83eb3c53", "8b1168fa0000008d5c1b8853"},
+		{0x38b9ae, "8b016a7d53", "8b0168fa00000053"},
+		{0x38bace, "6a7d538bc8", "68fa000000538bc8"},
+		{0x38baea, "6a7d538bc8", "68fa000000538bc8"},
+		// The row Y is already in screen pixels. Clamp it against the
+		// actual parent height with the new popup height.
+		{0x38b9b9, "8b87800000008b4c241483c083", "8bcd8b01ff90a80000002dfa00000033d285c00f48c28b4c2414"},
+	} {
+		var patch instructionPatch
+		stub, patch = appendStub(stub, stubRVA, block.site, hexBytes(block.before), hexBytes(block.after))
+		patches = append(patches, patch)
+	}
+	return stub, append(patches,
+		instruction(0x38b9d7, "6a1e", "6a3c"),
+		instruction(0x38ba14, "6807d385ea", "687ecf0353"), // HDBdgtPopupHeader
+		instruction(0x38ba29, "6a056a0a", "6a0a6a14"),
+		instruction(0x38ba60, "6808d385ea", "685e3d6e95"), // HDBdgtPopupBody
+		instruction(0x38ba75, "6a196a0f", "6a326a1e"),
+		instruction(0x38baa8, "68b4550114", "6860624114"),
+		instruction(0x38baad, "6a0b8d53e1", "6a168d53c2"))
 }
 
 // appendUISection leaves all stock sections and their file offsets in place.
