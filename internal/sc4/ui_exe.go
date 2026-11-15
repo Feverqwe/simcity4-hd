@@ -36,6 +36,15 @@ var expandLoadingPreview []byte
 //go:embed patchsrc/ui_playlist_wheel.i386
 var scrollPlaylist []byte
 
+//go:embed patchsrc/ui_data_map.i386
+var drawDataMap []byte
+
+//go:embed patchsrc/ui_map_terrain.i386
+var drawMapTerrain []byte
+
+//go:embed patchsrc/ui_map_terrain_tile.i386
+var expandTerrainChunk []byte
+
 //go:embed patchsrc/ui_disasters.i386
 var prepareDisasterBackground []byte
 
@@ -100,6 +109,69 @@ func appendDisasterBackgroundPatch(stub []byte, patches []instructionPatch, base
 	var patch instructionPatch
 	stub, patch = appendStub(stub, base, site, original, body)
 	return stub, append(patches, patch)
+}
+
+func appendDataMapPatches(stub []byte, patches []instructionPatch, base int) ([]byte, []instructionPatch) {
+	// Pass the current Data View mode alongside the byte-grid raster arguments.
+	// Coverage rings, map labels and other vector layers paint separately.
+	const rasterSite = 0x3a2628
+	const stockGridRaster = 0x79ed90
+	raster := base + len(stub)
+	stub = append(stub, drawDataMap...)
+	rasterEntry := base + len(stub)
+	stub = little.AppendUint32(append(stub, 0x68), stockGridRaster)
+	stub = append(stub, hexBytes("ffb344010000")...) // push [ebx+0x144]
+	stub = append(stub, bytes.Repeat(hexBytes("ff742428"), 8)...)
+	stub = append(stub, relativeInstruction(0xe8, base+len(stub), raster)...)
+	stub = append(stub, hexBytes("83c428c3")...)
+	patches = append(patches, instructionPatch{
+		rasterSite, relativeInstruction(0xe8, rasterSite, stockGridRaster-0x400000),
+		relativeInstruction(0xe8, rasterSite, rasterEntry),
+	})
+
+	// Compose the coverages with a screen-resolution terrain copy. The stock
+	// routines still perform the rotation, bitmap locks and overlay blend.
+	const allocVA = 0x5e55e0
+	const freeVA = 0x5e5620
+	terrain := base + len(stub)
+	stub = append(stub, drawMapTerrain...)
+	for _, draw := range []struct {
+		site, stock int
+		arguments   string
+	}{
+		{0x3a88b3, 0x7a67f0, "ff742428ff742428ff742428ff742428ff742428ff742428"},
+		{0x3a88ea, 0x7a66f0, "ff7424246a00ff742428ff742428ff742428ff742428"},
+	} {
+		entry := base + len(stub)
+		for _, arg := range []int{freeVA, allocVA, draw.stock} {
+			stub = little.AppendUint32(append(stub, 0x68), uint32(arg))
+		}
+		stub = append(stub, hexBytes("ff752c")...) // push [ebp+0x2c], the terrain zoom shift
+		stub = append(stub, hexBytes(draw.arguments)...)
+		stub = append(stub, relativeInstruction(0xe8, base+len(stub), terrain)...)
+		stub = append(stub, hexBytes("83c428c3")...)
+		patches = append(patches, instructionPatch{
+			draw.site, relativeInstruction(0xe8, draw.site, draw.stock-0x400000),
+			relativeInstruction(0xe8, draw.site, entry),
+		})
+	}
+	// A small city's 64 tiles need 8 pixels each on the 512-pixel map.
+	// Extend the stock terrain-chunk dispatch for that one missing zoom.
+	const terrainDispatch = 0x3a8560
+	tile := base + len(stub)
+	stub = append(stub, expandTerrainChunk...)
+	tileSize := base + len(stub)
+	body := hexBytes("8d4a0283f9ff750a") // If shift + 2 is -1, select the 8-pixel writer.
+	body = little.AppendUint32(append(body, 0xb9), uint32(0x400000+tile))
+	body = append(body, relativeInstruction(0xe9, tileSize+len(body), 0x3a8590)...)
+	body = append(body, hexBytes("83f9047605")...)
+	body = append(body, relativeInstruction(0xe9, tileSize+len(body), 0x3a85b0)...)
+	body = append(body, hexBytes("ff248d28867a00")...) // Original writer table.
+	var dispatch instructionPatch
+	stub, dispatch = appendStub(stub, base, terrainDispatch,
+		hexBytes("8d4a0283f9047748ff248d28867a00"), body)
+	patches = append(patches, dispatch)
+	return stub, patches
 }
 
 func patchUIExecutable(data []byte, textureScale int, options uiExecutableOptions) ([]byte, error) {
@@ -255,6 +327,8 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 		stub, nodeFont = appendStub(stub, stubRVA, node.site, original, append(body, original...))
 		patches = append(patches, nodeFont)
 	}
+
+	stub, patches = appendDataMapPatches(stub, patches, stubRVA)
 
 	// Data Views positions the legend again when switching overlays.
 	// Keep each layout's swatch column and align captions beside it.
