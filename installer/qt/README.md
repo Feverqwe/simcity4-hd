@@ -65,6 +65,7 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 | `overall` | `value` is the number of completed stages out of `total` for the operation. This updates a separate progress bar. |
 | `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, enable `reconfigure` and send a nonempty `settings` object. Its `options` and `choices` objects supply checkbox and dropdown values by `backendId` if set, or by `id`. Its `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
+| `recovered` | The previous installation was restored. On successful exit, setup runs a fresh inspection. |
 | `textures-transferred` | The archive operation succeeded. |
 | `retry-resource` | `text` describes a recoverable download failure. A line containing `retry` on stdin retries the resource in the current operation. EOF requests a pause. |
 | `error` | `text` describes the problem. An optional `field` identifies a path the user can correct. |
@@ -72,8 +73,9 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 
 During install, configure or an archive operation, EOF on stdin requests a pause, including when the setup
 window closes. Save resumable work before publishing the final installation.
-On a clean pause, emit `stopped` and exit. Successful `install` and
-`configure` commands emit `installed` and exit zero. Successful `remove`,
+On a clean pause, emit `stopped` and exit with code 2. Successful `install` and
+`configure` commands emit `installed` and exit zero. An `install` that restores
+a previous installation can emit `recovered` instead. Successful `remove`,
 `import-textures` and `export-textures` commands emit their corresponding
 completion event and exit zero. Failed commands emit `error` and exit
 nonzero. `inspect` can emit `installed` if the product is already installed.

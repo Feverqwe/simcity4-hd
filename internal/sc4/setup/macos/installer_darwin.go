@@ -25,14 +25,6 @@ import (
 
 var macWorldScale = regexp.MustCompile(`-x([24])(?:-[0-9]+)?\.dat$`)
 
-func Run(args []string) int {
-	if len(args) != 0 && slices.Contains([]string{"inspect", "install", "configure", "remove", "import-textures", "export-textures"}, args[0]) {
-		return runMacSetup(args)
-	}
-	fmt.Fprintln(os.Stderr, "usage: simcity4-uhd setup <inspect|install|configure|remove|import-textures|export-textures|check-update> ...")
-	return 2
-}
-
 func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage string, world macWorldPlan, sources *macSetupSources, diagnostics io.Writer) error {
 	gameData, _, err := gamefiles.DataDirectory(stock)
 	if err != nil {

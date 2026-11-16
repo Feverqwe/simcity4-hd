@@ -139,7 +139,8 @@ test ! -e "$copy" && test ! -L "$copy" && ditto "$stock" "$copy" &&
 
 Use matching texture scales. For World only, omit `-ui "$ui"`. For Interface
 only, omit `-world "$world"`. Keep stdin open until setup prints an
-`installed` event. An EOF on stdin pauses setup and emits `stopped`.
+`installed` event. An EOF on stdin pauses setup, emits `stopped` and exits
+with code 2.
 
 For Russian, build with `CGO_ENABLED=1 go build -o simcity4-uhd .` and unpack
 the translation from the checkout with

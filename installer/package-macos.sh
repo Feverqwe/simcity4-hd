@@ -5,7 +5,7 @@ if [[ ${1:-} == --help || ${1:-} == -h ]]; then
     cat <<'HELP'
 Usage: installer/package-macos.sh
 
-Build a ZIP with the experimental macOS setup app and its Qt runtime.
+Build a ZIP with the macOS setup app and its Qt runtime.
 Requires macOS, Go, CMake, Xcode Command Line Tools, and Qt 6.5 or later.
 
 QT_ROOT_DIR      Native Qt kit (default: Homebrew qtbase, or macdeployqt on PATH)

@@ -7,6 +7,7 @@
 #include <QLocale>
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -640,9 +641,12 @@ public:
             logLine("process", QStringLiteral("Exit code %1 (%2)").arg(code)
                         .arg(exit == QProcess::NormalExit ? "normal exit" : "crash").toUtf8());
             const bool failed = code != 0 || exit != QProcess::NormalExit;
+            const bool refresh = std::exchange(recovered, false) && !failed;
             if (!inspectionOutdated() && ((failed && completed) || ((running || failed) && !reported)))
                 showError(tr("Setup stopped unexpectedly. Try again."));
             settle();
+            if (refresh && !closeAfterStop)
+                inspectSelection();
         });
         connect(primary, &QPushButton::clicked, this, [this] {
             if (running || inspecting)
@@ -1121,6 +1125,10 @@ private:
             completed = true;
             appendDetails(tr("The mod was removed.").toUtf8() + '\n');
             status->setText(tr("The mod was removed."));
+        } else if (type == "recovered" && running) {
+            recovered = true;
+            reported = true;
+            completed = true;
         } else if (type == "retry-resource" && running && !stopping) {
             askResourceRetry(text);
         } else if (type == "error") {
@@ -1319,7 +1327,7 @@ private:
     bool installed = false, paused = false, completed = false;
     bool reconfigurable = false;
     bool running = false, inspecting = true, stopping = false, closeAfterStop = false, reported = false;
-    bool retryRequested = false;
+    bool retryRequested = false, recovered = false;
     QLabel *status, *counter;
     QProgressBar *overallBar, *bar;
     QToolButton *advanced;

@@ -30,6 +30,9 @@ func VerifyPackages(paths []string, output io.Writer) error {
 		for _, r := range a.Records {
 			previous, exists := owners[r.ID]
 			if !exists {
+				if err := a.VerifyCompression(r); err != nil {
+					return fmt.Errorf("%s %s: %w", path, r.ID, err)
+				}
 				owners[r.ID] = ResourceLocation{a, r}
 				continue
 			}

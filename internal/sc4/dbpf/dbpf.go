@@ -106,10 +106,38 @@ func (a *Archive) Read(r Record) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(data) >= 6 && data[4] == 0x10 && data[5] == 0xfb {
+	if isQFS(data) {
 		return decodeQFS(data)
 	}
 	return data, nil
+}
+
+// VerifyCompression checks QFS records without reading the bodies of raw records.
+func (a *Archive) VerifyCompression(r Record) error {
+	var header [6]byte
+	if r.Size < uint32(len(header)) {
+		return nil
+	}
+	if _, err := a.ReadAt(header[:], int64(r.Offset)); err != nil {
+		return err
+	}
+	if !isQFS(header[:]) {
+		return nil
+	}
+	_, err := a.Read(r)
+	return err
+}
+
+func isQFS(data []byte) bool {
+	if len(data) < 6 || data[4] != 0x10 || data[5] != 0xfb {
+		return false
+	}
+	// The length in a raw FSH or S3D header can start with the QFS marker.
+	switch string(data[:4]) {
+	case "SHPI", "3DMD":
+		return false
+	}
+	return true
 }
 
 type Entry struct {

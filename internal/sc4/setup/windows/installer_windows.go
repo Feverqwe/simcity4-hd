@@ -123,10 +123,13 @@ func Run(args []string) int {
 	defer func() { os.Stdout = stdout }()
 	emit := func(event installEvent) { _ = protocol.Encode(event) }
 	err := installerCommand(args, emit)
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			emit(installEvent{Type: "stopped"})
-			return 2
+			return setup.ExitPaused
 		}
 		var input setupInputError
 		if errors.As(err, &input) {
@@ -144,11 +147,8 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		return errors.New("expected an installer command")
 	}
 	local := os.Getenv("LOCALAPPDATA")
-	if !filepath.IsAbs(local) {
-		return errors.New("Windows could not find your Local AppData folder.")
-	}
 	data := filepath.Join(local, "SimCity4HD")
-	flags := flag.NewFlagSet("installer", flag.ContinueOnError)
+	flags := flag.NewFlagSet("simcity4-uhd setup "+args[0], flag.ContinueOnError)
 	game := flags.String("game", "", "original Steam game directory")
 	cache := flags.String("cache", filepath.Join(data, "Cache"), "texture cache directory")
 	archive := flags.String("archive", "", "portable texture archive")
@@ -168,6 +168,9 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	loadingPreview := flags.Bool("loading-preview", true, "use a larger city loading preview")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(local) {
+		return errors.New("Windows could not find your Local AppData folder.")
 	}
 	if flags.NArg() != 0 {
 		return errors.New("Unexpected installer arguments.")

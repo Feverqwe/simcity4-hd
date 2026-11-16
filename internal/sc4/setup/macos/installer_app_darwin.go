@@ -49,7 +49,7 @@ type macSetupEvent struct {
 	Settings *macSetupSettings `json:"settings,omitempty"`
 }
 
-func runMacSetup(args []string) int {
+func Run(args []string) int {
 	stdout := os.Stdout
 	encoder := json.NewEncoder(stdout)
 	os.Stdout = os.Stderr
@@ -64,7 +64,7 @@ func runMacSetup(args []string) int {
 	var resolution string
 	var sources macSetupSources
 	var build macSetupBuild
-	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	flags := flag.NewFlagSet("simcity4-uhd setup "+args[0], flag.ContinueOnError)
 	flags.StringVar(&game, "game", "", "Steam game bundle or installation folder")
 	flags.StringVar(&sources.Cache, "cache", "", "texture cache directory")
 	flags.StringVar(&archive, "archive", "", "portable texture archive")
@@ -73,6 +73,9 @@ func runMacSetup(args []string) int {
 	flags.StringVar(&sources.World, "world", "", "prepared macOS World build")
 	build.flags(flags)
 	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return fail("", err)
 	}
 	if flags.NArg() != 0 {
@@ -84,7 +87,7 @@ func runMacSetup(args []string) int {
 		if err := transferMacTextures(ctx, args[0], sources.Cache, archive, send); err != nil {
 			if errors.Is(err, context.Canceled) {
 				send(macSetupEvent{Type: "stopped"})
-				return 0
+				return setup.ExitPaused
 			}
 			var input macSetupInputError
 			if errors.As(err, &input) {
@@ -157,18 +160,13 @@ func runMacSetup(args []string) int {
 	if err := changeMacInstallation(ctx, args[0], bundle, sources, send, retry); err != nil {
 		if errors.Is(err, context.Canceled) {
 			send(macSetupEvent{Type: "stopped"})
-			return 0
+			return setup.ExitPaused
 		}
 		var input macSetupInputError
 		if errors.As(err, &input) {
 			return fail(input.field, err)
 		}
 		return fail("", err)
-	}
-	if args[0] == "remove" {
-		send(macSetupEvent{Type: "removed"})
-	} else {
-		send(macSetupEvent{Type: "installed", Path: bundle})
 	}
 	return 0
 }
@@ -332,7 +330,8 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 	if err := validateMacSetupDirectories(bundle); err != nil {
 		return err
 	}
-	if err := recoverMacSetup(bundle); err != nil {
+	recovered, err := recoverMacSetup(bundle)
+	if err != nil {
 		return err
 	}
 	original := bundle
@@ -340,6 +339,12 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 	if action == "install" {
 		if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
 			if err == nil {
+				if recovered {
+					if _, err := readMacSetupReceipt(bundle); err == nil {
+						send(macSetupEvent{Type: "recovered"})
+						return nil
+					}
+				}
 				return fmt.Errorf("A setup backup already exists at %s. Use Configure or Remove for a managed installation.", backup)
 			}
 			return err
@@ -386,9 +391,13 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return applyMacSetupFiles(bundle, stage, staged, "", true, func() error {
+		if err := applyMacSetupFiles(bundle, stage, staged, "", true, func() error {
 			return checkStockMacSetup(bundle)
-		})
+		}); err != nil {
+			return err
+		}
+		send(macSetupEvent{Type: "removed"})
+		return nil
 	}
 
 	var installed string
@@ -496,6 +505,7 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 		return err
 	}
 	nextStage()
+	send(macSetupEvent{Type: "installed", Path: bundle})
 	return nil
 }
 

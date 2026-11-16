@@ -199,25 +199,25 @@ func restoreMacSetupFiles(bundle string, changes []macSetupReplacement) error {
 	return os.Rename(transaction, filepath.Join(cleanup, "restored"))
 }
 
-func recoverMacSetup(bundle string) error {
+func recoverMacSetup(bundle string) (bool, error) {
 	transaction := macSetupTransactionDir(bundle)
 	info, err := os.Lstat(transaction)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("Invalid setup transaction: %s", transaction)
+		return false, fmt.Errorf("Invalid setup transaction: %s", transaction)
 	}
 	data, err := os.ReadFile(filepath.Join(transaction, "changes.json"))
 	if err != nil {
-		return err
+		return false, err
 	}
 	var changes []macSetupReplacement
 	if err := json.Unmarshal(data, &changes); err != nil {
-		return err
+		return false, err
 	}
 	allowed := make(map[string]bool)
 	for _, rel := range append(macSetupPatchPaths(), "") {
@@ -225,11 +225,14 @@ func recoverMacSetup(bundle string) error {
 	}
 	for _, change := range changes {
 		if !allowed[change.Path] {
-			return fmt.Errorf("Unexpected path in the setup transaction: %q", change.Path)
+			return false, fmt.Errorf("Unexpected path in the setup transaction: %q", change.Path)
 		}
 		delete(allowed, change.Path)
 	}
-	return restoreMacSetupFiles(bundle, changes)
+	if err := restoreMacSetupFiles(bundle, changes); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Publish the journal before moving any live files. An interrupted run can
