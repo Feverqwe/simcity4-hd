@@ -13,6 +13,7 @@ typedef struct { int left, top, right, bottom; } Rect;
 
 #define METHOD(window, slot, type) ((type)(window)->methods[(slot) / 4])
 
+#if !defined(__i386__)
 static int toolbarRight(Window *parent) {
     Window *toolbar = METHOD(parent, 0x8c, Window *(CALL *)(Window *, U32))(parent, 0xe9889775);
     if (!toolbar || !METHOD(toolbar, 0x11c, Byte (CALL *)(Window *))(toolbar))
@@ -27,6 +28,7 @@ static int toolbarRight(Window *parent) {
     METHOD(parent, 0xec, void (CALL *)(Window *, int *, int *))(parent, &x, &y);
     return x + 4;
 }
+#endif
 
 void CALL moveAnchoredPanel(Window *panel, int dx, int dy) {
     const U32 id = METHOD(panel, 0xfc, U32 (CALL *)(Window *))(panel);
@@ -47,11 +49,24 @@ void CALL moveAnchoredPanel(Window *panel, int dx, int dy) {
     }
     Window *parent = METHOD(panel, 0x2c, Window *(CALL *)(Window *))(panel);
     if (parent) {
+#if defined(__i386__)
+        // Windows copies the bounds into the caller's rectangle.
+        Rect bounds;
+        METHOD(panel, 0xbc, void (CALL *)(Window *, Rect *))(panel, &bounds);
+        const Rect *area = &bounds;
+#else
         const Rect *area = METHOD(panel, 0xbc, const Rect *(CALL *)(Window *))(panel);
+#endif
         const int width = METHOD(parent, 0xa4, int (CALL *)(Window *))(parent);
         const int limit = width - area->left - right;
         if (width >= right - left) {
+#if defined(__i386__)
+            // The native anchor already locates the panel during city HUD
+            // creation, when child windows cannot safely be enumerated.
+            const int min = -area->left - left;
+#else
             const int min = toolbarRight(parent) - area->left - left;
+#endif
             if (dx < min)
                 dx = min;
             if (dx > limit)
