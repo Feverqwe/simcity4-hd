@@ -12,12 +12,23 @@ import (
 const s3dResource = 0x5ad0e817
 
 func modelMaterialIDs(data []byte) ([]uint32, error) {
+	var ids []uint32
+	if err := visitModelTextures(data, func(reference []byte) {
+		ids = append(ids, little.Uint32(reference))
+	}); err != nil {
+		return nil, err
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids), nil
+}
+
+func visitModelTextures(data []byte, visit func([]byte)) error {
 	if len(data) < 20 || string(data[:4]) != "3DMD" || string(data[8:12]) != "HEAD" {
-		return nil, errors.New("expected an S3D model")
+		return errors.New("expected an S3D model")
 	}
 	major, minor := little.Uint16(data[16:]), little.Uint16(data[18:])
 	if major != 1 || (minor != 3 && minor != 5) {
-		return nil, fmt.Errorf("unsupported S3D version %d.%d", major, minor)
+		return fmt.Errorf("unsupported S3D version %d.%d", major, minor)
 	}
 	// Some original models declare stale chunk lengths. Use the next tag
 	// as the boundary and require every material group to fit within it.
@@ -25,56 +36,54 @@ func modelMaterialIDs(data []byte) ([]uint32, error) {
 	for _, tag := range []string{"VERT", "INDX", "PRIM", "MATS"} {
 		minimum := position + 8
 		if minimum > len(data) {
-			return nil, fmt.Errorf("missing S3D chunk %s", tag)
+			return fmt.Errorf("missing S3D chunk %s", tag)
 		}
 		found := bytes.Index(data[minimum:], []byte(tag))
 		if found < 0 {
-			return nil, fmt.Errorf("missing S3D chunk %s", tag)
+			return fmt.Errorf("missing S3D chunk %s", tag)
 		}
 		position = minimum + found
 	}
 	minimum := position + 12
 	if minimum > len(data) {
-		return nil, errors.New("truncated S3D material header")
+		return errors.New("truncated S3D material header")
 	}
 	end := bytes.Index(data[minimum:], []byte("ANIM"))
 	if end < 0 {
-		return nil, errors.New("missing S3D chunk ANIM")
+		return errors.New("missing S3D chunk ANIM")
 	}
-	return parseMaterialGroups(data[position+8:minimum+end], minor)
+	return visitMaterialTextures(data[position+8:minimum+end], minor, visit)
 }
 
-func parseMaterialGroups(data []byte, minor uint16) ([]uint32, error) {
+func visitMaterialTextures(data []byte, minor uint16, visit func([]byte)) error {
 	groups := little.Uint32(data)
 	data = data[4:]
 	nameLengthOffset := 10
 	if minor == 5 {
 		nameLengthOffset = 12
 	}
-	var ids []uint32
 	for range groups {
 		if len(data) < 16 {
-			return nil, errors.New("truncated material group")
+			return errors.New("truncated material group")
 		}
 		count := int(data[15])
 		data = data[16:]
 		for range count {
 			if len(data) <= nameLengthOffset {
-				return nil, errors.New("truncated texture reference")
+				return errors.New("truncated texture reference")
 			}
 			end := nameLengthOffset + 1 + int(data[nameLengthOffset])
 			if end > len(data) {
-				return nil, errors.New("truncated material name")
+				return errors.New("truncated material name")
 			}
-			ids = append(ids, little.Uint32(data))
+			visit(data[:end])
 			data = data[end:]
 		}
 	}
 	if len(data) != 0 {
-		return nil, errors.New("unexpected data after S3D material groups")
+		return errors.New("unexpected data after S3D material groups")
 	}
-	slices.Sort(ids)
-	return slices.Compact(ids), nil
+	return nil
 }
 
 type materialReference struct {

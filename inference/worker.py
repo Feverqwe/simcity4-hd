@@ -1,4 +1,4 @@
-"""Load the local HAT checkpoint and upscale RGBA images on CUDA."""
+"""Load the local HAT checkpoint and upscale RGBA images on the GPU."""
 import argparse
 import hashlib
 from io import BytesIO
@@ -27,13 +27,21 @@ def load_upscale(weights=WEIGHTS, *, scale=2, tile=64, overlap=16):
     if scale not in (2, 4):
         raise ValueError('expected output scale 2 or 4')
     verify_checkpoint(weights)
-    if not torch.cuda.is_available():
-        raise RuntimeError('CUDA is unavailable. Check the NVIDIA driver and install a CUDA build of PyTorch.')
+    if sys.platform == 'darwin':
+        if not torch.backends.mps.is_available():
+            raise RuntimeError('Metal is unavailable. Use a native Apple silicon build of Python and PyTorch.')
+        device = 'mps'
+        device_name = 'Apple Metal'
+    else:
+        if not torch.cuda.is_available():
+            raise RuntimeError('CUDA is unavailable. Check the NVIDIA driver and install a CUDA build of PyTorch.')
+        device = 'cuda'
+        device_name = torch.cuda.get_device_name()
     model = ModelLoader().load_from_file(weights)
     if not isinstance(model, ImageModelDescriptor) or model.scale != 4:
         raise ValueError('expected a 4x image upscaling model')
-    model = model.eval().cuda().bfloat16()
-    print(torch.__version__, torch.cuda.get_device_name(), file=sys.stderr, flush=True)
+    model = model.eval().to(device).bfloat16()
+    print(torch.__version__, device_name, file=sys.stderr, flush=True)
 
     @torch.inference_mode()
     def upscale(frame):
@@ -45,7 +53,7 @@ def load_upscale(weights=WEIGHTS, *, scale=2, tile=64, overlap=16):
                 right, bottom = min(width, x + tile), min(height, y + tile)
                 left, top = max(0, x - overlap), max(0, y - overlap)
                 crop = rgb.crop((left, top, min(width, right + overlap), min(height, bottom + overlap)))
-                tensor = torch.from_numpy(np.array(crop)).cuda().permute(2, 0, 1)[None]
+                tensor = torch.from_numpy(np.array(crop)).to(device).permute(2, 0, 1)[None]
                 tensor = tensor.to(torch.bfloat16).div_(255)
                 output = model(tensor)[0].clamp(0, 1).mul(255).round().byte().permute(1, 2, 0)
                 image = Image.fromarray(output.cpu().numpy())

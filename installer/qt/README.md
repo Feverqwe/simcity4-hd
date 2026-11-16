@@ -22,10 +22,14 @@ dropdown values in `localeDefaults`. If `localeDefaultFiles` lists files,
 the localized default requires those files beside the manifest or the setup
 executable. Set `artwork` to an optional image path relative to the
 manifest to show a branded header. The optional `displayResolution`
-object adds a display mode picker with a flag `id` and a `fallback` in
-`WIDTHxHEIGHT` format. The optional `icon` path sets the window icon. Set `completionUrl` and
+object adds a display mode picker with a flag `id`, an optional `label`,
+and a `fallback` in `WIDTHxHEIGHT` format. Use `auto` to offer an Automatic
+choice when the backend accepts that value. The optional `icon` path sets
+the window icon. Set `completionUrl` and
 `completionAction` to offer a button that opens a URL after successful
 installation or configuration.
+The optional `sessionLogDirectory` is an absolute path for a separate log
+file per run and can contain environment variables in `${NAME}` form.
 An optional HTTPS `projectUrl` adds a footer link with the label `projectLinkText`.
 With `checkForUpdates` enabled and an HTTPS `projectUrl` set, setup calls
 the backend's `check-update` command in the background. The command prints
@@ -52,6 +56,7 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 | `step` | `text` describes the current work. The progress bar becomes indeterminate. |
 | `progress` | `value` is measured progress for the current step, from 0 to 100. The next step restores the busy indicator. |
 | `count` | `value` counts units processed in the current step. An optional positive `total` sets the progress bar and displays both counts. |
+| `overall` | `value` is the number of completed stages out of `total` for the operation. This updates a separate progress bar. |
 | `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, enable `reconfigure` and send a nonempty `settings` object. Its `options` and `choices` objects supply checkbox and dropdown values by manifest ID. Its `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
 | `textures-transferred` | The archive operation succeeded. |

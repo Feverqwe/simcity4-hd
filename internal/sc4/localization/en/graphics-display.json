@@ -4,5 +4,6 @@
   "windowMode": "Window mode",
   "windowed": "Windowed",
   "fullscreen": "Fullscreen",
-  "borderless": "Borderless fullscreen"
+  "borderless": "Borderless fullscreen",
+  "restart": "Changes apply after restarting the game."
 }

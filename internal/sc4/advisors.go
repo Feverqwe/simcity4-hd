@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"slices"
 )
 
 type advisorPoint [3]float64
@@ -377,7 +378,7 @@ func buildAdvisorsPackage(ctx context.Context, game, output string) error {
 	if err != nil {
 		return err
 	}
-	gameData, _, err := gameDataDirectory(game)
+	gameData, mac, err := gameDataDirectory(game)
 	if err != nil {
 		return err
 	}
@@ -406,6 +407,13 @@ func buildAdvisorsPackage(ctx context.Context, game, output string) error {
 		if err == nil {
 			raw, err = clip.build(ctx, raw)
 		}
+		if err == nil && mac {
+			err = visitModelTextures(raw, func(reference []byte) {
+				if slices.Contains(advisorFaceIDs, little.Uint32(reference)) {
+					reference[7] = 1 // Stock Aspyr advisor filter, without mip sampling.
+				}
+			})
+		}
 		if err != nil {
 			return fmt.Errorf("build %s: %w", entry.id, err)
 		}
@@ -419,6 +427,12 @@ func buildAdvisorsPackage(ctx context.Context, game, output string) error {
 		texture, err := recipe.texture(instance)
 		if err != nil {
 			return err
+		}
+		if mac {
+			texture, err = advisorAspyrTexture(texture)
+			if err != nil {
+				return fmt.Errorf("advisor texture %08x: %w", instance, err)
+			}
 		}
 		entries = append(entries, resource{resourceID{fshResource, advisorsFaceGroup, instance}, texture})
 	}

@@ -10,15 +10,23 @@
 
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
+#elif defined(Q_OS_MACOS)
+#include <CoreGraphics/CoreGraphics.h>
 #endif
 
 namespace {
+
+QFile *sessionLog = nullptr;
 
 static void logLine(const char *source, const QByteArray &message) {
     const auto entry = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
         + " [" + source + "] " + message + '\n';
     std::fwrite(entry.constData(), 1, entry.size(), stderr);
     std::fflush(stderr);
+    if (sessionLog) {
+        sessionLog->write(entry);
+        sessionLog->flush();
+    }
 }
 
 class Banner : public QWidget {
@@ -154,10 +162,38 @@ QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
                 available.append(size);
         }
     }
+#elif defined(Q_OS_MACOS)
+    const auto pixelSize = [](CGDisplayModeRef mode) {
+        const auto w = CGDisplayModeGetPixelWidth(mode);
+        const auto h = CGDisplayModeGetPixelHeight(mode);
+        if (w < 800 || w > 7680 || h < 600 || h > 4320)
+            return QSize();
+        return QSize(int(w), int(h));
+    };
+    const auto display = CGMainDisplayID();
+    if (auto mode = CGDisplayCopyDisplayMode(display)) {
+        current = pixelSize(mode);
+        CFRelease(mode);
+    }
+    if (auto modes = CGDisplayCopyAllDisplayModes(display, nullptr)) {
+        const auto count = CFArrayGetCount(modes);
+        for (CFIndex index = 0; index < count; ++index) {
+            const auto mode = static_cast<CGDisplayModeRef>(const_cast<void *>(CFArrayGetValueAtIndex(modes, index)));
+            const QSize size = pixelSize(mode);
+            if (size.isValid() && !available.contains(size))
+                available.append(size);
+        }
+        CFRelease(modes);
+    }
 #endif
     const auto label = [](QSize size) { return QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()); };
     const auto value = [](QSize size) { return QStringLiteral("%1x%2").arg(size.width()).arg(size.height()); };
-    if (current.width() >= 800 && current.height() >= 600) {
+    const bool hasCurrent = current.width() >= 800 && current.height() >= 600;
+    if (fallback == QStringLiteral("auto")) {
+        picker->addItem(QObject::tr("Automatic"), fallback);
+        if (hasCurrent && !available.contains(current))
+            available.append(current);
+    } else if (hasCurrent) {
         picker->addItem(QObject::tr("Current display (%1)").arg(label(current)), value(current));
     } else {
         auto displayFallback = fallback;
@@ -351,6 +387,12 @@ public:
         layout->setSpacing(10);
         outer->addLayout(layout);
 
+        overallBar = new QProgressBar;
+        overallBar->setAccessibleName(tr("Overall installation progress"));
+        overallBar->setFormat(tr("%v of %m stages complete"));
+        overallBar->hide();
+        layout->addWidget(overallBar);
+
         status = new QLabel(tr("Checking your system…"));
         status->setWordWrap(true);
         status->setTextFormat(Qt::PlainText);
@@ -360,7 +402,7 @@ public:
         exportTextures->hide();
         connect(exportTextures, &QPushButton::clicked, this, [this] { chooseTextureArchive(true); });
         bar = new QProgressBar;
-        bar->setAccessibleName(tr("Installation progress"));
+        bar->setAccessibleName(tr("Current stage progress"));
         bar->hide();
         layout->addWidget(bar);
         counter = new QLabel;
@@ -403,7 +445,11 @@ public:
         resolutionFlag = displayOption.value("id").toString();
         if (!resolutionFlag.isEmpty()) {
             resolution = displayResolutionPicker(displayOption.value("fallback").toString(), panel);
-            form->addRow(tr("&Game resolution"), resolution);
+            form->addRow(displayOption.value("label").toString(tr("&Game resolution")), resolution);
+            connect(resolution, &QComboBox::currentIndexChanged, this, [this] {
+                if (fieldToFix == resolutionFlag)
+                    clearFieldError();
+            });
         }
         const auto options = config.value("options").toArray();
         if (!options.isEmpty()) {
@@ -739,6 +785,8 @@ private:
             field->edit->setPalette(QPalette());
             field->edit->setAccessibleDescription({});
         }
+        if (resolution && fieldToFix == resolutionFlag)
+            resolution->setAccessibleDescription({});
         fieldToFix.clear();
     }
 
@@ -898,6 +946,7 @@ private:
         details->clear();
         details->show();
         counter->hide();
+        overallBar->hide();
         busyBar();
         startBackend(operation);
     }
@@ -965,6 +1014,16 @@ private:
                     inspectedPaths.insert(field->id, field->edit->text().trimmed());
                 else if (!field->info.value("inspectOnChange").toBool())
                     installedPaths.insert(field->id, field->edit->text());
+            }
+        } else if (type == "overall" && running && !stopping) {
+            const int total = event.value("total").toInt();
+            const int done = event.value("value").toInt(-1);
+            if (total > 0 && done >= 0 && done <= total) {
+                if (overallBar->isHidden())
+                    fitHeight();
+                overallBar->setRange(0, total);
+                overallBar->setValue(done);
+                overallBar->show();
             }
         } else if (type == "step" && !stopping) {
             appendDetails(text.toUtf8() + '\n');
@@ -1093,12 +1152,17 @@ private:
         clearFieldError();
         fieldToFix = fieldId;
         const auto *field = fieldById(fieldToFix);
+        const bool fixResolution = resolution && fieldToFix == resolutionFlag;
         if (field) {
             auto palette = field->edit->palette();
             const auto base = palette.color(QPalette::Base);
             palette.setColor(QPalette::Base, QColor((base.red() * 3 + 255) / 4, base.green() * 3 / 4, base.blue() * 3 / 4));
             field->edit->setPalette(palette);
             field->edit->setAccessibleDescription(message);
+        }
+        if (fixResolution)
+            resolution->setAccessibleDescription(message);
+        if (field || fixResolution) {
             advanced->show();
             advanced->setChecked(true);
         }
@@ -1113,6 +1177,11 @@ private:
                 advancedPanel->ensureWidgetVisible(edit);
                 edit->setFocus();
                 edit->selectAll();
+            });
+        } else if (fixResolution) {
+            connect(alert, &QMessageBox::finished, this, [this] {
+                advancedPanel->ensureWidgetVisible(resolution);
+                resolution->setFocus();
             });
         } else if (canRetry) {
             connect(alert, &QMessageBox::finished, this, [this](int result) {
@@ -1147,6 +1216,8 @@ private:
             return;
         }
         bar->hide();
+        if (!paused)
+            overallBar->hide();
         pause->hide();
         primary->show();
         primary->setEnabled(true);
@@ -1217,7 +1288,7 @@ private:
     bool running = false, inspecting = true, stopping = false, closeAfterStop = false, reported = false;
     bool retryRequested = false;
     QLabel *status, *counter;
-    QProgressBar *bar;
+    QProgressBar *overallBar, *bar;
     QToolButton *advanced;
     QScrollArea *advancedPanel;
     QPlainTextEdit *details;
@@ -1234,7 +1305,13 @@ private:
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    const auto args = app.arguments();
+    auto args = app.arguments();
+#ifdef Q_OS_MACOS
+    if (args.size() == 1) {
+        const QDir bin(QCoreApplication::applicationDirPath());
+        args << bin.filePath("simcity4-uhd") << bin.filePath("../Resources/setup.json");
+    }
+#endif
     if (args.size() != 3)
         return 1;
     QFile file(args.at(2));
@@ -1245,11 +1322,26 @@ int main(int argc, char **argv) {
         QMessageBox::critical(nullptr, QObject::tr("Setup"), QObject::tr("The setup configuration is missing or invalid."));
         return 1;
     }
+    QTemporaryFile log;
+    const auto logDirectory = expandPath(config.value("sessionLogDirectory").toString());
+    if (QDir::isAbsolutePath(logDirectory) && QDir().mkpath(logDirectory)) {
+        log.setFileTemplate(QDir(logDirectory).filePath("setup-XXXXXX.log"));
+        if (log.open()) {
+            log.setAutoRemove(false);
+            sessionLog = &log;
+            logLine("setup", "Setup started (timestamps in UTC)");
+        }
+    }
     const auto assets = QFileInfo(file).absoluteDir();
     const auto icon = config.value("icon").toString();
     if (!icon.isEmpty())
         app.setWindowIcon(QIcon(assets.filePath(icon)));
     Setup setup(args.at(1), config, assets);
     setup.show();
-    return app.exec();
+    const auto result = app.exec();
+    if (sessionLog) {
+        logLine("setup", "Setup closed");
+        sessionLog = nullptr;
+    }
+    return result;
 }

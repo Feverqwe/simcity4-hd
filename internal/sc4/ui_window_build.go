@@ -108,16 +108,14 @@ func buildWindowEntries(stock uiStock, config string, windows bool, textureScale
 			if err != nil {
 				return nil, "", err
 			}
-			if windows {
-				switch instance {
-				case playOptionsLayout:
-					data, err = keyboardHelpLayout(stock, data)
-				case graphicsOptionsLayout:
-					data, err = graphicsResolutionLayout(stock, data)
-				}
-				if err != nil {
-					return nil, "", err
-				}
+			switch {
+			case instance == playOptionsLayout:
+				data, err = keyboardHelpLayout(stock, data)
+			case instance == graphicsOptionsLayout:
+				data, err = graphicsResolutionLayout(stock, data, !windows)
+			}
+			if err != nil {
+				return nil, "", err
 			}
 			if err := window.add(instance, data, textureScale, stock.isPNG); err != nil {
 				return nil, "", err

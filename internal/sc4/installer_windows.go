@@ -299,6 +299,16 @@ func installLock(data string) (func(), error) {
 }
 
 func installHD(ctx context.Context, game, cache string, options setupOptions, emit func(installEvent), waitForRetry func() error) error {
+	stages := 4 // Check, prepare renderer, check packages, apply.
+	if options.ui {
+		stages++
+	}
+	if options.world.any() {
+		stages++
+	}
+	nextStage := setupStageProgress(stages, func(done, total int) {
+		emit(installEvent{Type: "overall", Value: done, Total: total})
+	})
 	emit(installEvent{Type: "step", Phase: 1, Text: "Checking the game installation and cache"})
 	fmt.Fprintf(os.Stderr, "Game: %q; cache: %q; resolution: %dx%d\n", game, cache, options.width, options.height)
 	if !filepath.IsAbs(game) {
@@ -381,6 +391,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		nextStage()
 		var patched string
 		var packageDirs []string
 		if options.russian {
@@ -395,6 +406,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 			}
 			patched = filepath.Join(ui, "SimCity4-hd.exe")
 			packageDirs = append(packageDirs, filepath.Join(ui, "Plugins"))
+			nextStage()
 		} else {
 			fmt.Fprintln(os.Stderr, "Interface: skipped by request")
 		}
@@ -404,6 +416,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 				return err
 			}
 			packageDirs = append(packageDirs, filepath.Join(world, "Plugins"))
+			nextStage()
 		} else {
 			fmt.Fprintln(os.Stderr, "World textures: skipped by request")
 		}
@@ -417,6 +430,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		if err != nil {
 			return err
 		}
+		nextStage()
 		progress.report("Installing and checking HD files")
 		stage := filepath.Join(work, "Install")
 		if err := os.Mkdir(stage, 0755); err != nil {
@@ -452,6 +466,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		if err := os.WriteFile(filepath.Join(stage, installedCacheFile), []byte(cache), 0644); err != nil {
 			return err
 		}
+		nextStage()
 		progress.report("Applying the mod to the game folder")
 		var fontChanges []setupReplacement
 		if options.russian {
@@ -460,7 +475,11 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 				return err
 			}
 		}
-		return publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options, fontChanges, &keepWork)
+		if err := publishMod(ctx, game, work, stage, patched, exe, renderer, graphics, options, fontChanges, &keepWork); err != nil {
+			return err
+		}
+		nextStage()
+		return nil
 	}
 	err = run()
 	if err != nil && ctx.Err() != nil && !keepWork {
@@ -524,26 +543,4 @@ func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {
 			}
 		},
 	}
-}
-
-func insideFolder(parent, target string) bool {
-	rel, err := filepath.Rel(parent, target)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func resolveSetupPath(name string) (string, error) {
-	name = filepath.Clean(name)
-	resolved, err := filepath.EvalSymlinks(name)
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		return resolved, err
-	}
-	parent := filepath.Dir(name)
-	if parent == name {
-		return "", err
-	}
-	resolved, err = resolveSetupPath(parent)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(resolved, filepath.Base(name)), nil
 }

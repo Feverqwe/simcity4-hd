@@ -102,6 +102,10 @@ The experimental macOS build targets the English Steam release of SimCity 4
 Deluxe by Aspyr, version 1.2.1 (185949). It runs under Rosetta on Apple silicon.
 Use the original `.app` as the game path for `world` and `ui`. Those commands
 can also build the DATs on a separate machine using the shared texture cache.
+On Apple silicon with macOS 14 or later, pass `-python` and `-weights` to
+generate missing textures with PyTorch on Metal. Use native arm64 Python
+with PyTorch, torchvision, NumPy, Pillow, safetensors, and spandrel, and
+the same HAT checkpoint as on Windows.
 
 On Mac, run `go build -o simcity4-uhd .` from the checkout and stage a separate bundle. To use UHD
 world textures with the original interface, run
@@ -117,8 +121,10 @@ Pass `-russian russian-source` when building the UI. Staging installs the
 matching fonts into the new bundle. Stage a separate copy with the default UI
 build to play in English.
 
-Larger cursors, the doubled region map, and the doubled city loading preview
-are currently Windows options. The macOS build uses Aspyr's OpenGL renderer.
+Pass `-region-map-2x` to double the region map and `-loading-preview-2x`
+to double the city loading preview when building the UI. Pass
+`-hd-cursors` for larger cursors and use `-cursor-scale 4` for the largest
+size. The macOS build uses Aspyr's OpenGL renderer.
 Aspyr may play its startup movies before applying the launch options.
 
 With Steam open, copy the original `Contents/GameData/Regions` directory
@@ -127,9 +133,13 @@ into a separate profile without spaces in its path and create an empty
 to preview the launch parameters and add `-start` before the paths to launch.
 Use `-start -foreground` to keep the session attached and see the game's output.
 Launch the staged copy through this command to use the separate profile.
-For the doubled interface, use `-resolution WIDTHxHEIGHT` to request the
-display's backing resolution. On Retina, compare the menu size at that
-resolution with the original game on the same display.
+Fullscreen uses the display's backing resolution by default. Use
+`-resolution WIDTHxHEIGHT` to override it for a diagnostic launch.
+With the UHD interface enabled, choose the resolution and window mode in
+Graphics Options and select **Accept** to apply them in the current session.
+Borderless fullscreen uses the desktop resolution.
+In windowed mode, drag a window edge to resize the game on the fly. The
+game scales the frame to fit the window at the selected render resolution.
 
 ## Restore the Windows Steam game
 

@@ -148,7 +148,7 @@ func russianStaticCaptionEntries(hud []resource) ([]resource, error) {
 
 // Some menu labels share localization keys with headings and graph titles.
 // Keep the full localization key available to the button's native tooltip.
-func russianButtonCaptionEntries(hud []resource, windows bool) ([]resource, error) {
+func russianButtonCaptionEntries(hud []resource) ([]resource, error) {
 	var captions map[string]string
 	if err := json.Unmarshal(russianButtonCaptionData, &captions); err != nil {
 		return nil, fmt.Errorf("parse Russian button captions: %w", err)
@@ -181,7 +181,7 @@ func russianButtonCaptionEntries(hud []resource, windows bool) ([]resource, erro
 				added[id] = true
 			}
 			line = strings.Replace(line, ref[0], fmt.Sprintf("captionres={%08x,%08x}", id.group, id.instance), 1)
-			if windows && strings.Contains(line, " tips=no ") && !strings.Contains(line, " tipres=") &&
+			if strings.Contains(line, " tips=no ") && !strings.Contains(line, " tipres=") &&
 				strings.Contains(line, ` tiptext="" `) {
 				line = strings.Replace(line, " tips=no ", " tips=yes ", 1)
 				line = strings.Replace(line, " tipsdelay=no ", " tipsdelay=yes ", 1)

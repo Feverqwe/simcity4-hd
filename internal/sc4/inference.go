@@ -88,9 +88,9 @@ func startInference(ctx context.Context, config inferenceConfig, diagnostics io.
 		}
 		args = append(args, "--exec", config.python)
 		command = exec.CommandContext(ctx, "wsl.exe", append(args, workerArgs...)...)
-	case runtime.GOOS == "windows", runtime.GOOS == "linux":
-		if config.distro != "" {
-			return nil, errors.New("select the WSL distribution before running the Linux builder")
+	case runtime.GOOS == "windows", runtime.GOOS == "linux", runtime.GOOS == "darwin":
+		if config.distro != "" || runtime.GOOS == "darwin" && config.wsl {
+			return nil, errors.New("WSL inference must run from the Windows builder")
 		}
 		if config.prepare != nil {
 			workerArgs = append([]string{"-I"}, workerArgs...)
@@ -100,7 +100,7 @@ func startInference(ctx context.Context, config inferenceConfig, diagnostics io.
 			command.Dir = filepath.Dir(config.python)
 		}
 	default:
-		return nil, errors.New("HAT inference requires Windows or Linux")
+		return nil, errors.New("HAT inference requires Windows, Linux, or macOS")
 	}
 	configureBackgroundProcess(command)
 	command.Stderr = diagnostics

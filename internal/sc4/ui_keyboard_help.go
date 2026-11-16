@@ -147,7 +147,7 @@ type shortcut struct {
 	name string
 }
 
-func parseShortcuts(config string) []shortcut {
+func parseShortcuts(config string, mac bool) []shortcut {
 	var rows []shortcut
 	index := make(map[string]int)
 	for _, line := range strings.Split(config, "\n") {
@@ -163,11 +163,12 @@ func parseShortcuts(config string) []shortcut {
 		}
 		title, _, _ = strings.Cut(title, `"`)
 		key := strings.Join(strings.Fields(action), " ") + "|" + title
+		label := displayShortcut(binding, mac)
 		if i, found := index[key]; found {
-			rows[i].keys = append(rows[i].keys, displayShortcut(binding))
+			rows[i].keys = append(rows[i].keys, label)
 		} else {
 			index[key] = len(rows)
-			rows = append(rows, shortcut{[]string{displayShortcut(binding)}, title})
+			rows = append(rows, shortcut{[]string{label}, title})
 		}
 	}
 	return rows
@@ -179,14 +180,22 @@ var shortcutDisplay = strings.NewReplacer(
 	"Return", "Enter", "Escape", "Esc",
 )
 
-func displayShortcut(binding string) string {
+func displayShortcut(binding string, mac bool) string {
 	if binding == "?" || binding == "Alt ?" {
 		binding = strings.Replace(binding, "?", "/", 1)
 	}
-	return shortcutDisplay.Replace(strings.Join(strings.Fields(binding), " + "))
+	keys := strings.Fields(binding)
+	if mac {
+		for i, key := range keys {
+			if key == "Alt" {
+				keys[i] = "Option"
+			}
+		}
+	}
+	return shortcutDisplay.Replace(strings.Join(keys, " + "))
 }
 
-func keyboardHelpEntries(stock uiStock, russian bool) ([]resource, error) {
+func keyboardHelpEntries(stock uiStock, russian, mac bool) ([]resource, error) {
 	var translations map[string]string
 	if russian {
 		if err := json.Unmarshal(russianKeyHelpData, &translations); err != nil {
@@ -213,7 +222,7 @@ func keyboardHelpEntries(stock uiStock, russian bool) ([]resource, error) {
 		if err != nil {
 			return nil, err
 		}
-		rows := parseShortcuts(string(config))
+		rows := parseShortcuts(string(config), mac)
 		if len(rows) == 0 {
 			return nil, fmt.Errorf("empty shortcut configuration %08x", mode.config)
 		}

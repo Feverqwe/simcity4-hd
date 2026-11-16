@@ -28,30 +28,6 @@ type installedSettings struct {
 	Resolution string            `json:"resolution,omitempty"`
 }
 
-func worldPackage(name string) (option, scale string) {
-	base, ok := strings.CutSuffix(name, ".dat")
-	if !ok {
-		return "", ""
-	}
-	marker := strings.LastIndex(base, "-x")
-	if marker < 0 {
-		return "", ""
-	}
-	scale, _, _ = strings.Cut(base[marker+2:], "-")
-	if scale != "2" && scale != "4" {
-		return "", ""
-	}
-	switch prefix := base[:marker]; {
-	case prefix == "network":
-		return "network", scale
-	case prefix == "terrain-indexed", strings.HasPrefix(prefix, "world-terrain-"):
-		return "terrain", scale
-	case prefix == "model-overrides", strings.HasPrefix(prefix, "world-"), strings.HasPrefix(prefix, "model-materials"):
-		return "models", scale
-	}
-	return "", ""
-}
-
 func isInterfacePackage(name string) bool {
 	switch name {
 	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat", "cursors-hd-x4.dat",
@@ -526,6 +502,16 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		terrain: desired.world.terrain && !available["terrain"],
 		models:  desired.world.models && !available["models"],
 	}
+	stages := 3 // Prepare changes, check packages, apply.
+	if rebuildUI {
+		stages++
+	}
+	if missing.any() {
+		stages++
+	}
+	nextStage := setupStageProgress(stages, func(done, total int) {
+		emit(installEvent{Type: "overall", Value: done, Total: total})
+	})
 	cache, err = resolveSetupPath(cache)
 	if err != nil {
 		return setupInputError{"cache", fmt.Sprintf("Could not open the texture cache: %v", err)}
@@ -614,6 +600,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		}
 	}
 
+	nextStage()
 	phase := 1
 	deps := setupDependencies{ctx: ctx, dir: filepath.Join(cache, "SetupDependencies"), emit: emit, waitForRetry: waitForRetry}
 	progress := installerBuildProgress(&deps, &phase)
@@ -634,6 +621,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 			return err
 		}
 		generated = append(generated, filepath.Join(uiStage, "Plugins"))
+		nextStage()
 	}
 	phase = 2
 	if missing.any() {
@@ -641,7 +629,9 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 			return err
 		}
 		generated = append(generated, filepath.Join(worldStage, "Plugins"))
+		nextStage()
 	}
+	progress.report("Checking changes to the installed mod")
 	if rebuildAdvisors {
 		progress.report("Preparing the advisors")
 		if err := stageSetupAdvisors(ctx, game, newActive); err != nil {
@@ -751,9 +741,14 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if !bytes.Equal(observed, current) {
 		return errors.New("The game executable changed while setup was running. Try again.")
 	}
+	nextStage()
 	emit(installEvent{Type: "step", Text: "Applying changes to the installed mod"})
 	applying = true
-	return applySetupReplacements(work, replacements, &keepWork)
+	if err := applySetupReplacements(work, replacements, &keepWork); err != nil {
+		return err
+	}
+	nextStage()
+	return nil
 }
 
 func removeHD(game string) error {

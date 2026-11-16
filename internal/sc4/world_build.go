@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type worldSelection struct {
@@ -15,6 +16,30 @@ type worldSelection struct {
 }
 
 func (s worldSelection) any() bool { return s.network || s.terrain || s.models }
+
+func worldPackage(name string) (option, scale string) {
+	base, ok := strings.CutSuffix(name, ".dat")
+	if !ok {
+		return "", ""
+	}
+	marker := strings.LastIndex(base, "-x")
+	if marker < 0 {
+		return "", ""
+	}
+	scale, _, _ = strings.Cut(base[marker+2:], "-")
+	if scale != "2" && scale != "4" {
+		return "", ""
+	}
+	switch prefix := base[:marker]; {
+	case prefix == "network":
+		return "network", scale
+	case prefix == "terrain-indexed", strings.HasPrefix(prefix, "world-terrain-"):
+		return "terrain", scale
+	case prefix == "model-overrides", strings.HasPrefix(prefix, "world-"), strings.HasPrefix(prefix, "model-materials"):
+		return "models", scale
+	}
+	return "", ""
+}
 
 func runBuildWorld(args []string) error {
 	return buildWorldWithProgress(context.Background(), args, buildProgress{}, worldSelection{network: true, terrain: true, models: true})

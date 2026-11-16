@@ -1,0 +1,150 @@
+{
+  "product": "SimCity 4 UHD",
+  "projectUrl": "https://github.com/Feverqwe/simcity4-hd",
+  "projectLinkText": "GitHub",
+  "checkForUpdates": true,
+  "backendArgs": [
+    "setup"
+  ],
+  "readyText": "Close SimCity 4 Deluxe before installing. Setup downloads the upscaling tools on the first build.",
+  "completionAction": "Play",
+  "completionUrl": "steam://rungameid/24780",
+  "reconfigure": true,
+  "textureArchives": true,
+  "sessionLogDirectory": "${HOME}/Library/Logs/SimCity4HD",
+  "displayResolution": {
+    "id": "resolution",
+    "label": "&Startup resolution",
+    "fallback": "auto"
+  },
+  "paths": [
+    {
+      "id": "game",
+      "label": "Steam &game folder",
+      "browse": "Choose the Steam SimCity 4 Deluxe folder",
+      "inspectOnChange": true,
+      "required": true,
+      "prompt": "Choose the Steam folder containing SimCity 4 Deluxe."
+    },
+    {
+      "id": "cache",
+      "label": "Texture cache",
+      "browse": "Choose a texture cache folder"
+    },
+    {
+      "id": "ui",
+      "label": "Prepared &interface build",
+      "browse": "Choose a prepared macOS interface build"
+    },
+    {
+      "id": "world",
+      "label": "Prepared &world build",
+      "browse": "Choose a prepared macOS world texture build"
+    }
+  ],
+  "pausedText": "Resume whenever you’re ready. Setup will reuse the textures already saved.",
+  "options": [
+    {
+      "id": "texture-scale",
+      "label": "Texture scale",
+      "default": "2",
+      "values": [
+        {
+          "value": "2",
+          "label": "×2"
+        },
+        {
+          "value": "4",
+          "label": "×4"
+        }
+      ]
+    },
+    {
+      "id": "interface",
+      "label": "Upscale interface textures and apply UI fixes",
+      "default": true,
+      "group": "Interface"
+    },
+    {
+      "id": "language",
+      "label": "Game language",
+      "default": "game",
+      "localeDefaults": {
+        "ru": "russian"
+      },
+      "localeDefaultFiles": [
+        "Russian/russian.sc4pack"
+      ],
+      "requires": "interface",
+      "values": [
+        {
+          "value": "game",
+          "label": "Game default"
+        },
+        {
+          "value": "russian",
+          "label": "Русский"
+        }
+      ]
+    },
+    {
+      "id": "hd-cursors",
+      "label": "Larger game cursors",
+      "default": true,
+      "requires": "interface"
+    },
+    {
+      "id": "retina-text",
+      "label": "Render text at Retina density",
+      "default": false,
+      "requires": "interface"
+    },
+    {
+      "id": "region-map",
+      "label": "Larger region map",
+      "default": true,
+      "requires": "interface"
+    },
+    {
+      "id": "loading-preview",
+      "label": "Larger city loading preview",
+      "default": true,
+      "requires": "interface"
+    },
+    {
+      "id": "world-textures",
+      "label": "Upscale world textures",
+      "default": true,
+      "group": "World"
+    },
+    {
+      "id": "network",
+      "label": "Roads and rail",
+      "default": true,
+      "requires": "world-textures"
+    },
+    {
+      "id": "terrain",
+      "label": "Terrain",
+      "default": true,
+      "requires": "world-textures"
+    },
+    {
+      "id": "models",
+      "label": "Buildings, props and effects",
+      "default": true,
+      "requires": "world-textures"
+    },
+    {
+      "id": "skip-intro",
+      "label": "Skip the game intro",
+      "default": true,
+      "group": "Game launch"
+    },
+    {
+      "id": "draw-stats",
+      "label": "Show FPS counter",
+      "default": false
+    }
+  ]
+}

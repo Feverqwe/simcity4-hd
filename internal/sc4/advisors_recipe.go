@@ -125,6 +125,26 @@ func (recipe advisorsRecipe) texture(instance uint32) ([]byte, error) {
 	return data, nil
 }
 
+func advisorAspyrTexture(data []byte) ([]byte, error) {
+	elements, err := fshLayout(data)
+	if err != nil {
+		return nil, err
+	}
+	frame := elements[0]
+	size, err := validateBCElement(data, frame, 0, true)
+	if err != nil {
+		return nil, err
+	}
+	// Aspyr's advisor materials use a single level. Keep the Windows cache's
+	// HD blocks intact and use the stock frame layout without an attachment.
+	topEnd := frame.start + 16 + size
+	result := append(data[:topEnd:topEnd], make([]byte, 16)...)
+	clear(result[frame.start+1 : frame.start+4])
+	little.PutUint16(result[frame.start+14:], frame.offsetY&0xfff)
+	little.PutUint32(result[4:], uint32(len(result)))
+	return result, nil
+}
+
 func (recipe advisorsRecipe) validate() error {
 	for _, instance := range advisorClipIDs() {
 		clip, err := recipe.clip(instance)

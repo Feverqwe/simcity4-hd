@@ -35,3 +35,35 @@ func TestSetupUpdateReportsOnlyNewerStableReleases(t *testing.T) {
 		})
 	}
 }
+
+func TestMacSetupUpdatesRequireAnUploadedArchiveForTheCurrentArchitecture(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[
+			{"tag_name":"v2.4.0","assets":[{"name":"SimCity4UHD-Setup.exe","state":"uploaded"}]},
+			{"tag_name":"v1.7.0","assets":[{"name":"SimCity4UHD-Setup-macos-arm64.zip","state":"uploaded"}]},
+			{"tag_name":"v2.2.0","prerelease":true,"assets":[{"name":"SimCity4UHD-Setup-macos-arm64.zip","state":"uploaded"}]},
+			{"tag_name":"v1.8.0","assets":[{"name":"SimCity4UHD-Setup-macos-arm64.zip","state":"uploaded"}]},
+			{"tag_name":"v1.9.0","assets":[{"name":"SimCity4UHD-Setup-macos-x86_64.zip","state":"uploaded"}]},
+			{"tag_name":"v2.1.0","assets":[{"name":"SimCity4UHD-Setup-macos-arm64.zip","state":"starter"}]},
+			{"tag_name":"v2.0.0","draft":true,"assets":[{"name":"SimCity4UHD-Setup-macos-x86_64.zip","state":"uploaded"}]}
+		]`)
+	}))
+	defer server.Close()
+	for _, tc := range []struct{ arch, current, want string }{
+		{"arm64", "v1.7.0", "v1.8.0\n"},
+		{"x86_64", "v1.7.0", "v1.9.0\n"},
+		{"arm64", "v1.8.0", ""},
+		{"arm64", "v1.8.0-rc.1", "v1.8.0\n"},
+	} {
+		t.Run(tc.arch+"/"+tc.current, func(t *testing.T) {
+			asset := "SimCity4UHD-Setup-macos-" + tc.arch + ".zip"
+			var out bytes.Buffer
+			if err := reportMacSetupUpdate(tc.current, server.URL, asset, server.Client(), &out); err != nil {
+				t.Fatal(err)
+			}
+			if out.String() != tc.want {
+				t.Fatalf("reported %q, want %q", out.String(), tc.want)
+			}
+		})
+	}
+}

@@ -53,6 +53,8 @@ type uiExecutableOptions struct {
 	loadingPreview    bool
 	regionMap         bool
 	russianBudgetTips bool
+	retinaText        bool
+	cursorScale       int
 }
 
 type instructionPatch struct {
@@ -360,6 +362,7 @@ func patchUIExecutable(data []byte, textureScale int, options uiExecutableOption
 	patches = append(patches, zodiacArrow)
 
 	stub, patches = appendBudgetUIPatches(stub, patches, stubRVA)
+	stub, patches = appendAnchoredPanelFit(stub, patches, stubRVA, false)
 	stub, patches = appendEditorDecimalPatches(stub, patches, stubRVA)
 	stub, patches = appendKeyboardHelpPatch(stub, patches, stubRVA)
 	stub, patches = appendGraphicsResolutionPatches(stub, patches, stubRVA)
@@ -796,14 +799,20 @@ func runUIExecutable(args []string) error {
 	flags := flag.NewFlagSet("patch-ui-exe", flag.ContinueOnError)
 	scale := flags.Int("texture-scale", 4, "UI texture scale (2 or 4)")
 	hdCursors := flags.Bool("hd-cursors", false, "enable the HD game cursor loader")
+	cursorScale := flags.Int("cursor-scale", 2, "density of the prepared HD cursor assets (2 or 4)")
 	regionMap := flags.Bool("region-map-2x", false, "double the region map")
 	loadingPreview := flags.Bool("loading-preview-2x", false, "double the city loading preview")
+	russianBudgetTips := flags.Bool("russian-budget-tips", false, "use the Russian budget tooltips")
+	retinaText := flags.Bool("retina-text", false, "enable experimental Retina text on macOS")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	args = flags.Args()
 	if *scale != 2 && *scale != 4 {
 		return errors.New("texture scale must be 2 or 4")
+	}
+	if *cursorScale != 2 && *cursorScale != 4 {
+		return errors.New("cursor scale must be 2 or 4")
 	}
 	if len(args) != 2 {
 		return errors.New("usage: simcity4-uhd patch-ui-exe GAME_DIR_OR_APP OUTPUT")
@@ -816,7 +825,9 @@ func runUIExecutable(args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err = patchGameUIExecutable(data, mac, *scale, uiExecutableOptions{hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap})
+	data, err = patchGameUIExecutable(data, mac, *scale, uiExecutableOptions{
+		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap, russianBudgetTips: *russianBudgetTips, retinaText: *retinaText, cursorScale: *cursorScale,
+	})
 	if err != nil {
 		return err
 	}
@@ -828,10 +839,14 @@ func runUIExecutable(args []string) error {
 
 func patchGameUIExecutable(data []byte, mac bool, scale int, options uiExecutableOptions) ([]byte, error) {
 	if !mac {
+		if options.retinaText {
+			return nil, errors.New("Retina text is available on macOS")
+		}
 		return patchUIExecutable(data, scale, options)
 	}
-	if options != (uiExecutableOptions{}) {
-		return nil, errors.New("optional UI executable patches are unavailable for macOS")
+	patched, err := patchMachOUIExecutable(data, scale)
+	if err != nil {
+		return patched, err
 	}
-	return patchMachOUIExecutable(data, scale)
+	return patchMachOFeatures(patched, options, scale)
 }

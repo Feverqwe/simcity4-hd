@@ -25,6 +25,9 @@ const macDisplayModeStub = 0x1f00
 //go:embed patchsrc/display_mode_macho.x86_64
 var macDisplayModeCode []byte
 
+//go:embed patchsrc/keyboard_help_macho.x86_64
+var macKeyboardHelpCode []byte
+
 func patchMachOUIExecutable(data []byte, textureScale int) ([]byte, error) {
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 	if hash != stockMachOHash {
@@ -53,6 +56,11 @@ func patchMachOUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		instruction(0x3d7add, "bab006a046", "bac7404ae7"),
 		instruction(0x3d7b3c, "bab006a046", "bac7404ae7"),
 		instruction(0x3d7bcb, "bab006a046", "bac7404ae7"),
+		// Query Help is bottom-aligned, with a separate X offset for ultrawide views.
+		instruction(0x78940a, "83c705", "83c70a"),
+		instruction(0x789410, "be05000000", "be0a000000"),
+		instruction(0x789418, "8d530b", "8d5316"),
+		// Restoring a collapsed HUD uses the projected button and doubled offsets.
 		instruction(0x7894b2, "48b8acdb6d85b006a046", "48b8acdb6d85bd404ae7"),
 		instruction(0x7896bd, "83c0e4be0c000000", "83c0c8be18000000"),
 		instruction(0x78bb9b, "41b9a264258a", "41b9c3404ae7"),
@@ -68,18 +76,59 @@ func patchMachOUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		instruction(0x78d9e5, "ba35000000b91900000041b85e00000041b93e000000", "ba6a000000b93200000041b8bc00000041b97c000000"),
 		instruction(0x78da46, "4183c5f6", "4183c5ec"),
 		instruction(0x78da4e, "41b90a000000", "41b914000000"),
+		instruction(0x316e10, "ba88f8064c", "bac0404ae7"), // My Sims vehicle icons.
 		instruction(0x31b179, "ba88f8064c", "bac0404ae7"), // My Sims transport selection.
 		// Aspyr constructs the pager headline and both News body styles
 		// in code. Match the HTML font level used by the Windows UHD UI.
 		instruction(0x31e886, "48b95a453d333e3c423e", "48b95a453d353e3c423e"),
 		instruction(0x31e9a9, "48b9222053495a453d33", "48b9222053495a453d35"),
 		instruction(0x31ea4e, "48b9222053495a453d33", "48b9222053495a453d35"),
+		// Advisor messages construct their own HTML heading and both body styles.
+		instruction(0x2b78a2, "48b95a453d333e3c423e", "48b95a453d353e3c423e"),
+		instruction(0x2b7977, "48b9222053495a453d33", "48b9222053495a453d35"),
+		instruction(0x2b7a61, "48b9222053495a453d33", "48b9222053495a453d35"),
 		// Mission progress resizes its panel for active and idle text.
 		instruction(0x787d49, "83c008", "83c010"),
 		instruction(0x787d6c, "83c008", "83c010"),
+		// Route Query uses the mission panel's upper-right anchor.
+		instruction(0x792d36, "418d7424f8", "418d7424f0"),
+		instruction(0x792d3d, "ba08000000", "ba10000000"),
+		// Saved dialog positions need a visible edge or a fallback position.
+		instruction(0x2a69df, "4183c4f8", "4183c4f0"),
+		instruction(0x2a69ea, "83fb08", "83fb10"),
+		instruction(0x2a69f2, "4183c7f8", "4183c7f0"),
+		instruction(0x2a69fd, "83f807", "83f80f"),
+		instruction(0x2a6a19, "be08000000ba08000000", "be10000000ba10000000"),
+		// The tutorial exit dialog overrides the position from its layout.
+		instruction(0x0b7d75, "be32000000ba78000000", "be64000000baf0000000"),
 		// Callout title and body wrap against independent screen-pixel limits.
 		instruction(0x3c6b7f, "41b9fa000000", "41b9f4010000"),
 		instruction(0x3c6c2f, "41b9fa000000", "41b9f4010000"),
+		// Building Style Control positions the budget and finance panes after
+		// reading their neighbors' scaled bottom edges.
+		instruction(0x7594dd, "83c002", "83c004"),
+		instruction(0x75950b, "83c008", "83c010"),
+	}
+	// The advisor, ticker and newspaper each build the same set of marker URLs
+	// with two adjacent immediate values for the group and the start of the ID.
+	stockGroup := fmt.Sprintf("%08x", catalogFrameGroup)
+	markerGroup := fmt.Sprintf("%08x", newsMarkerGroup)
+	const markerTemplate = "48b9%x4889481848b9%x"
+	stockMarker := fmt.Sprintf(markerTemplate, stockGroup[3:]+"/14", "HTML/"+stockGroup[:3])
+	hdMarker := fmt.Sprintf(markerTemplate, markerGroup[3:]+"/14", "HTML/"+markerGroup[:3])
+	for _, table := range []struct {
+		first, second, stride, last int
+	}{
+		{0x2b7b59, 0x2b7c3c, 0xe3, 0x2b88a6}, // Advisor.
+		{0x31979b, 0x31987e, 0xe3, 0x31a4e8}, // Ticker.
+		{0x31eaf2, 0x31eb8f, 0x93, 0x31f3a0}, // Newspaper.
+	} {
+		uiPatches = append(uiPatches, instruction(table.first, stockMarker, hdMarker),
+			instruction(table.last, stockMarker, hdMarker))
+		for i := 0; i < newsMarkerCount-2; i++ {
+			site := table.second + i*table.stride
+			uiPatches = append(uiPatches, instruction(site, stockMarker, hdMarker))
+		}
 	}
 	patched := bytes.Clone(data)
 	if err := placeMachOCode(patched, int(text.Offset), macLaunchStub, macLaunchCode); err != nil {
@@ -93,13 +142,20 @@ func patchMachOUIExecutable(data []byte, textureScale int) ([]byte, error) {
 		{0x3972c, hexBytes("554889e54157"), append(relativeInstruction(0xe9, 0x3972c, macLaunchStub+0x80), 0x90)},
 		{0x63f96c, hexBytes("e83f6d2900"), relativeInstruction(0xe8, 0x63f96c, macLaunchStub+0x100)},
 		{0x60cf03, hexBytes("418b8628020000"), append(relativeInstruction(0xe9, 0x60cf03, macDisplayModeStub), 0x90, 0x90)},
-		{0x5461, hexBytes("48ba0004000000030000"), append(relativeInstruction(0xe9, 0x5461, macDisplayModeStub+0x60), bytes.Repeat([]byte{0x90}, 5)...)},
+		{0x5edc, hexBytes("e8d1210000"), relativeInstruction(0xe8, 0x5edc, macDisplayModeStub+0x60)},
 	}
 	if textureScale != 0 {
 		patches = append(patches, uiPatches...)
+		const stub = 0x1c00
+		if err := placeMachOCode(patched, macDisplayModeStub, stub, macKeyboardHelpCode); err != nil {
+			return nil, err
+		}
+		patches = append(patches,
+			instructionPatch{0x3a32b8, hexBytes("498b3e488b07"), append(relativeInstruction(0xe9, 0x3a32b8, stub), 0x90)},
+			instructionPatch{0x3a3518, hexBytes("41833f03752e"), append(relativeInstruction(0xe9, 0x3a3518, stub+0x80), 0x90)},
+		)
 	}
 	if textureScale == 4 {
-		patches = append(patches, instruction(0x316e10, "ba88f8064c", "bac0404ae7"))
 		const stub = 0x1600
 		if err := placeMachOCode(patched, macLaunchStub, stub, macDensityCode); err != nil {
 			return nil, err

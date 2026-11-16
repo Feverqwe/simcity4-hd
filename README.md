@@ -1,10 +1,10 @@
 # SimCity 4 UHD
 
-A mod for **SimCity 4 Deluxe on Windows** with 4K support, a larger interface, and upscaled textures.
+A mod for **SimCity 4 Deluxe** with 4K support, a larger interface, and upscaled textures. For the experimental Steam port to macOS, see [Install on macOS](#install-on-macos).
 
 ![SimCity 4 UHD gameplay at 3840 × 2160](assets/screenshot.jpg)
 
-## Install the mod
+## Install on Windows
 
 1. Download [SimCity4UHD-Setup.exe](https://github.com/Feverqwe/simcity4-hd/releases/latest/download/SimCity4UHD-Setup.exe), close SimCity 4, and open the installer.
 2. Select **Install**. If setup cannot find the Steam installation, choose the game folder.
@@ -28,4 +28,8 @@ To change a mod installed through setup, close the game, reopen setup, and selec
 
 Setup shows installation steps and errors below the progress bar. Session logs are normally saved under `%LOCALAPPDATA%\SimCity4HD\Logs`.
 
-See [Advanced setup](docs/advanced.md) for building textures from source and testing in a separate profile.
+## Install on macOS
+
+The experimental macOS installer patches the existing **Aspyr Steam** installation of SimCity 4 Deluxe, version 1.2.1 (build 185949). Extract the macOS setup archive, close the game, and open **SimCity 4 UHD Setup**. After installation, launch through Steam to play with your usual profile.
+
+See the [macOS installer guide](installer/README.md#experimental-macos-setup) for texture sources, configuration, and removal. [Advanced setup](docs/advanced.md) covers building textures from source and testing in a separate profile.

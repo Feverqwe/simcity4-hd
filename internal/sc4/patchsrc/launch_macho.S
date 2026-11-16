@@ -61,15 +61,10 @@
 .Lprofile:
     .asciz "SC4_UHD_PROFILE"
 
-// PtInDisplay receives coordinates that SDLHandleEvent already converted
-// to game pixels. Fullscreen bounds must use those same units.
+// PtInDisplay receives coordinates already converted to game pixels.
 .org 0x100, 0x90
-    cmp byte ptr [rip + .Lbase + 0xb13130 - 0x1a80], 0
-    jne .Lwindow_bounds
     mov eax, [rip + .Lbase + 0xb8f4d4 - 0x1a80]
     mov [rsi], eax
     mov eax, [rip + .Lbase + 0xb8f4d8 - 0x1a80]
     mov [rdx], eax
     ret
-.Lwindow_bounds:
-    branch 0xe9, 0x8d66b0

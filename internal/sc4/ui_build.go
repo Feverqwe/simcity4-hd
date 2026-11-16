@@ -105,6 +105,13 @@ func buildHUD(game string, stock uiStock, art uiArtwork, windows bool) ([]resour
 		return nil, err
 	}
 	entries = append(entries, layouts...)
+	if !windows {
+		scrollbar, err := aspyrScrollbarArt(stock)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, scrollbar...)
+	}
 	config, err = scaleRuntimeFonts(config, string(font), true)
 	if err != nil {
 		return nil, err
@@ -527,7 +534,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	executable, err = patchGameUIExecutable(executable, mac, *textureScale, uiExecutableOptions{
 		hdCursors: *hdCursors, loadingPreview: *loadingPreview, regionMap: *regionMap,
-		russianBudgetTips: !mac && *russian != "",
+		russianBudgetTips: *russian != "", cursorScale: *cursorScale,
 	})
 	if err != nil {
 		return err
@@ -583,29 +590,27 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	if err != nil {
 		return fmt.Errorf("build HUD: %w", err)
 	}
-	if !mac {
-		help, err := keyboardHelpEntries(stockUI, *russian != "")
-		if err != nil {
-			return fmt.Errorf("build keyboard shortcuts: %w", err)
-		}
-		hud = append(hud, help...)
-		displayText, err := graphicsResolutionStrings(*russian != "")
-		if err != nil {
-			return fmt.Errorf("build display settings strings: %w", err)
-		}
-		hud = append(hud, displayText...)
-		progress.report("Driving gauges")
-		gauges, err := driveGaugeEntries(stockUI, art)
-		if err != nil {
-			return err
-		}
-		chrome, err := runtimeChromeEntries(stockUI, art)
-		if err != nil {
-			return err
-		}
-		hud = append(hud, gauges...)
-		hud = append(hud, chrome...)
+	help, err := keyboardHelpEntries(stockUI, *russian != "", mac)
+	if err != nil {
+		return fmt.Errorf("build keyboard shortcuts: %w", err)
 	}
+	hud = append(hud, help...)
+	displayText, err := graphicsResolutionStrings(*russian != "", mac)
+	if err != nil {
+		return fmt.Errorf("build display settings strings: %w", err)
+	}
+	hud = append(hud, displayText...)
+	progress.report("Driving gauges")
+	gauges, err := driveGaugeEntries(stockUI, art)
+	if err != nil {
+		return err
+	}
+	hud = append(hud, gauges...)
+	runtimeChrome, err := runtimeChromeEntries(stockUI, art)
+	if err != nil {
+		return err
+	}
+	hud = append(hud, runtimeChrome...)
 	// The runtime catalog shares native copy routines with other windows.
 	// Project its x4 art to the doubled frame geometry those routines expect.
 	progress.report("Building catalog")
@@ -626,7 +631,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 	}
 	var cursors []resource
 	if *hdCursors {
-		cursors, err = cursorEntries(stock, art, *cursorScale)
+		cursors, err = cursorEntries(stock, art, *cursorScale, mac)
 		if err != nil {
 			return fmt.Errorf("build cursors: %w", err)
 		}
@@ -656,14 +661,12 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 			packages = append(packages, uiPackage{"credits-text.dat", credits})
 		}
 	} else {
-		if !mac {
-			russianBudgetTooltips(hud)
-			captions, err := russianStaticCaptionEntries(hud)
-			if err != nil {
-				return err
-			}
-			russianText = append(russianText, captions...)
+		russianBudgetTooltips(hud)
+		captions, err := russianStaticCaptionEntries(hud)
+		if err != nil {
+			return err
 		}
+		russianText = append(russianText, captions...)
 		resized := make(map[resourceID][]byte, len(tutorial)+len(credits))
 		for _, entry := range append(tutorial, credits...) {
 			resized[entry.id] = entry.data
@@ -678,7 +681,7 @@ func buildUIFromExecutable(ctx context.Context, args []string, progress buildPro
 				return fmt.Errorf("Russian locale %s: %w", entry.id, err)
 			}
 		}
-		captions, err := russianButtonCaptionEntries(hud, !mac)
+		captions, err = russianButtonCaptionEntries(hud)
 		if err != nil {
 			return err
 		}

@@ -1,9 +1,11 @@
 package sc4
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"strings"
 )
 
@@ -11,6 +13,48 @@ const graphicsOptionsLayout = 0x8a7e052f
 const displayTextFirst = 0xe74a44e1
 
 var graphicsComboFrameSource = resourceID{uiImage, catalogFrameGroup, 0x13f15250}
+
+func aspyrScrollbarArt(stock uiStock) ([]resource, error) {
+	// The original scrollbar is available through three resource keys.
+	ids := []resourceID{
+		{uiImage, catalogFrameGroup, 0x144161e3},
+		{uiImage, catalogFrameGroup, 0x46a006a6},
+		{uiImage, mySimPortraitGroup, 0x144161e3},
+	}
+	original, err := stock.read(ids[0])
+	if err != nil {
+		return nil, err
+	}
+	art, err := decodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	// The bitmap painter does not draw a track behind the keyed artwork.
+	track := color.NRGBA{R: 222, G: 232, B: 227, A: 255}
+	for y := range art.Rect.Dy() {
+		for x := range art.Rect.Dx() {
+			if art.NRGBAAt(x, y) == uiColorKey {
+				art.SetNRGBA(x, y, track)
+			}
+		}
+	}
+	encoded, err := encodeRGBA(art)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]resource, 0, len(ids))
+	for _, id := range ids {
+		alias, err := stock.read(id)
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(alias, original) {
+			return nil, fmt.Errorf("unexpected Aspyr scrollbar art %s", id)
+		}
+		entries = append(entries, resource{id, encoded})
+	}
+	return entries, nil
+}
 
 //go:embed patchsrc/ui_graphics_resolution.i386
 var graphicsResolutionCode []byte
@@ -21,7 +65,7 @@ var graphicsDisplayEnglish []byte
 //go:embed localization/ru/graphics-display.json
 var graphicsDisplayRussian []byte
 
-func graphicsResolutionLayout(stock uiStock, original []byte) ([]byte, error) {
+func graphicsResolutionLayout(stock uiStock, original []byte, mac bool) ([]byte, error) {
 	zodiac, err := stock.read(layoutID(0x0a243d80))
 	if err != nil {
 		return nil, err
@@ -70,14 +114,19 @@ func graphicsResolutionLayout(stock uiStock, original []byte) ([]byte, error) {
 				"area=(1,275,185,297)", "area=(264,334,448,356)").Replace(frame))
 			layout.WriteString(strings.NewReplacer("0xe74a4401", "0xe74a4404",
 				"area=(7,276,177,296)", "area=(270,335,440,355)").Replace(combo))
-			for index, item := range []struct {
-				id   uint32
-				area string
-			}{
-				{0xe74a4402, "(7,276,252,315)"},
-				{0xe74a4403, "(7,315,252,347)"},
-				{0xe74a4405, "(267,315,455,335)"},
-			} {
+			type statusControl struct {
+				id, caption uint32
+				area        string
+			}
+			statuses := []statusControl{
+				{0xe74a4402, displayTextFirst, "(7,276,252,315)"},
+				{0xe74a4403, displayTextFirst + 1, "(7,315,252,347)"},
+				{0xe74a4405, displayTextFirst + 2, "(267,315,455,335)"},
+			}
+			if mac {
+				statuses = append(statuses, statusControl{0xe74a4408, displayTextFirst + 6, "(7,315,252,347)"})
+			}
+			for _, item := range statuses {
 				status := strings.NewReplacer(
 					"id=0xca57da80", fmt.Sprintf("id=0x%08x", item.id),
 					"area=(4,255,246,276)", "area="+item.area,
@@ -85,7 +134,7 @@ func graphicsResolutionLayout(stock uiStock, original []byte) ([]byte, error) {
 					"winflag_ignoremouse=no", "winflag_ignoremouse=yes",
 					"wrapped=no", "wrapped=yes",
 					`caption="Resolution" captionres={0a554ae8,ca7e17ca}`,
-					fmt.Sprintf(`caption="" captionres={%08x,%08x}`, hdUITextGroup, displayTextFirst+index),
+					fmt.Sprintf(`caption="" captionres={%08x,%08x}`, hdUITextGroup, item.caption),
 				).Replace(line)
 				layout.WriteString(status)
 			}
@@ -127,7 +176,7 @@ func maskGraphicsComboBackdrop(original, enlarged []byte, scale int) ([]byte, er
 	return encodeRGBA(art)
 }
 
-func graphicsResolutionStrings(russian bool) ([]resource, error) {
+func graphicsResolutionStrings(russian, mac bool) ([]resource, error) {
 	data := graphicsDisplayEnglish
 	if russian {
 		data = graphicsDisplayRussian
@@ -137,7 +186,11 @@ func graphicsResolutionStrings(russian bool) ([]resource, error) {
 		return nil, err
 	}
 	var entries []resource
-	for index, key := range []string{"desktopResolution", "saveError", "windowMode", "windowed", "fullscreen", "borderless"} {
+	keys := []string{"desktopResolution", "saveError", "windowMode", "windowed", "fullscreen", "borderless"}
+	if mac {
+		keys = append(keys, "restart")
+	}
+	for index, key := range keys {
 		caption := captions[key]
 		if caption == "" {
 			return nil, fmt.Errorf("missing display settings translation %q", key)

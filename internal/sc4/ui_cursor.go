@@ -15,7 +15,7 @@ type cursorFrame struct {
 	hotspot image.Point
 }
 
-func cursorEntries(stock *archive, art uiArtwork, scale int) ([]resource, error) {
+func cursorEntries(stock *archive, art uiArtwork, scale int, mac bool) ([]resource, error) {
 	var entries []resource
 	for _, record := range stock.records {
 		if record.id.kind != cursorResource {
@@ -45,14 +45,14 @@ func cursorEntries(stock *archive, art uiArtwork, scale int) ([]resource, error)
 			}
 			frames[i] = cursorFrame{upscaled, frame.hotspot.Mul(scale)}
 		}
-		// Windows uses the first entry when loading at its file size.
+		// The native loaders use the first entry when loading at its file size.
 		slices.SortStableFunc(frames, func(a, b cursorFrame) int {
 			return b.pixels.Rect.Dx()*b.pixels.Rect.Dy() - a.pixels.Rect.Dx()*a.pixels.Rect.Dy()
 		})
-		entries = append(entries, resource{record.id, encodeCursor(frames)})
+		entries = append(entries, resource{record.id, encodeCursor(frames, mac)})
 	}
 	if len(entries) == 0 {
-		return nil, errors.New("no stock Windows cursors found")
+		return nil, errors.New("no stock CUR resources found")
 	}
 	return entries, nil
 }
@@ -206,7 +206,13 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.N
 	return result, nil
 }
 
-func encodeCursor(frames []cursorFrame) []byte {
+func encodeCursor(frames []cursorFrame, mac bool) []byte {
+	headerSize := 40
+	if mac {
+		// BITMAPV4HEADER declares an explicit alpha channel, including when
+		// a 16-pixel frame becomes the same size as a stock 32-pixel frame.
+		headerSize = 108
+	}
 	data := make([]byte, 6+16*len(frames))
 	little.PutUint16(data[2:], 2)
 	little.PutUint16(data[4:], uint16(len(frames)))
@@ -214,17 +220,25 @@ func encodeCursor(frames []cursorFrame) []byte {
 		w, h := frame.pixels.Rect.Dx(), frame.pixels.Rect.Dy()
 		maskStride := ((w + 31) / 32) * 4
 		colorBytes := 4 * w * h
-		bitmap := make([]byte, 40+colorBytes+maskStride*h)
-		little.PutUint32(bitmap, 40)
+		bitmap := make([]byte, headerSize+colorBytes+maskStride*h)
+		little.PutUint32(bitmap, uint32(headerSize))
 		little.PutUint32(bitmap[4:], uint32(w))
 		little.PutUint32(bitmap[8:], uint32(2*h))
 		little.PutUint16(bitmap[12:], 1)
 		little.PutUint16(bitmap[14:], 32)
 		little.PutUint32(bitmap[20:], uint32(colorBytes))
+		if mac {
+			little.PutUint32(bitmap[16:], 3) // BI_BITFIELDS
+			little.PutUint32(bitmap[40:], 0x00ff0000)
+			little.PutUint32(bitmap[44:], 0x0000ff00)
+			little.PutUint32(bitmap[48:], 0x000000ff)
+			little.PutUint32(bitmap[52:], 0xff000000)
+			little.PutUint32(bitmap[56:], 0x73524742) // LCS_sRGB
+		}
 		for y := range h {
 			row := h - 1 - y
-			pixels := bitmap[40+4*w*row:]
-			mask := bitmap[40+colorBytes+maskStride*row:]
+			pixels := bitmap[headerSize+4*w*row:]
+			mask := bitmap[headerSize+colorBytes+maskStride*row:]
 			for x := range w {
 				p := frame.pixels.NRGBAAt(x, y)
 				if p.A == 0 {

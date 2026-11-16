@@ -2,6 +2,8 @@
 // clang -target i686-pc-windows-msvc -Os -ffreestanding -fno-stack-protector -fno-vectorize -fno-slp-vectorize -c ui_loading_preview.c -o preview.obj
 // llvm-objcopy --dump-section .text=ui_loading_preview.i386 preview.obj preview-copy.obj
 // For ui_region_tile.i386, compile the same source with -DREGION_TILE.
+// For the Aspyr preview or region tile, use clang -target x86_64-linux-gnu with the same
+// flags plus -DASPYR -fno-asynchronous-unwind-tables, and extract .text.
 // The entry point is at offset zero. The .text section must have no relocations.
 
 typedef unsigned int U32;
@@ -23,7 +25,26 @@ typedef Byte (THISCALL *CreateBuffer)(void *, Buffer **);
 #else
 typedef Byte (THISCALL *CreateBuffer)(void *, U32, U32, Buffer **);
 #endif
+#ifdef ASPYR
+typedef Byte (*InitBuffer)(Buffer *, int, int, unsigned long long);
+enum {
+    #ifdef REGION_TILE
+    CREATE = 0x20 / 8,
+#else
+    CREATE = 0x18 / 8,
+#endif
+    INIT = 0x28 / 8, RELEASE = 0x10 / 8,
+    LOCK = 0x40 / 8, UNLOCK = 0x48 / 8, WIDTH = 0x58 / 8, HEIGHT = 0x60 / 8,
+    FORMAT = 0x88 / 8, PIXELS = 0x120 / 8, STRIDE = 0x128 / 8
+};
+#else
 typedef Byte (THISCALL *InitBuffer)(Buffer *, int, int, U32, U32);
+enum {
+    CREATE = 0x0c / 4, INIT = 0x0c / 4, RELEASE = 0x08 / 4,
+    LOCK = 0x18 / 4, UNLOCK = 0x1c / 4, WIDTH = 0x24 / 4, HEIGHT = 0x28 / 4,
+    FORMAT = 0x3c / 4, PIXELS = 0x88 / 4, STRIDE = 0x8c / 4
+};
+#endif
 typedef U32 (THISCALL *ReleaseBuffer)(Buffer *);
 typedef Byte (THISCALL *LockBuffer)(Buffer *, U32);
 typedef int (THISCALL *BufferInt)(Buffer *);
@@ -38,14 +59,14 @@ static inline U32 mix(U32 center, U32 neighbor) {
 }
 
 static __attribute__((always_inline)) inline Buffer *expand(Buffer *original, GetFactory getFactory) {
-    const int width = ((BufferInt)original->methods[0x24 / 4])(original);
-    const int height = ((BufferInt)original->methods[0x28 / 4])(original);
+    const int width = ((BufferInt)original->methods[WIDTH])(original);
+    const int height = ((BufferInt)original->methods[HEIGHT])(original);
     if (width < 1 || height < 1 || width > 1024 || height > 1024) {
         return 0;
     }
 
     U32 format[2];
-    ((BufferFormat)original->methods[0x3c / 4])(original, format);
+    ((BufferFormat)original->methods[FORMAT])(original, format);
     if (format[1] != 32 || (format[0] != 8 && format[0] != 9)) {
         return 0;
     }
@@ -54,7 +75,7 @@ static __attribute__((always_inline)) inline Buffer *expand(Buffer *original, Ge
         return 0;
     }
     Buffer *enlarged = 0;
-    const CreateBuffer create = (CreateBuffer)(*(void ***)factory)[0x0c / 4];
+    const CreateBuffer create = (CreateBuffer)(*(void ***)factory)[CREATE];
 #ifdef REGION_TILE
     const Byte created = create(factory, &enlarged);
 #else
@@ -63,7 +84,14 @@ static __attribute__((always_inline)) inline Buffer *expand(Buffer *original, Ge
     if (!created || !enlarged) {
         return 0;
     }
-    if (!((InitBuffer)enlarged->methods[0x0c / 4])(enlarged, width * 2, height * 2, format[0], format[1])) {
+    const InitBuffer init = (InitBuffer)enlarged->methods[INIT];
+#ifdef ASPYR
+    const unsigned long long colorType = ((unsigned long long)format[1] << 32) | format[0];
+    const Byte initialized = init(enlarged, width * 2, height * 2, colorType);
+#else
+    const Byte initialized = init(enlarged, width * 2, height * 2, format[0], format[1]);
+#endif
+    if (!initialized) {
         goto release;
     }
 #ifdef REGION_TILE
@@ -73,18 +101,18 @@ static __attribute__((always_inline)) inline Buffer *expand(Buffer *original, Ge
     const U32 readFlags = 0x40;
     const U32 writeFlags = 0x8010;
 #endif
-    if (!((LockBuffer)original->methods[0x18 / 4])(original, readFlags)) {
+    if (!((LockBuffer)original->methods[LOCK])(original, readFlags)) {
         goto release;
     }
-    if (!((LockBuffer)enlarged->methods[0x18 / 4])(enlarged, writeFlags)) {
-        ((LockBuffer)original->methods[0x1c / 4])(original, readFlags);
+    if (!((LockBuffer)enlarged->methods[LOCK])(enlarged, writeFlags)) {
+        ((LockBuffer)original->methods[UNLOCK])(original, readFlags);
         goto release;
     }
 
-    const Byte *source = (const Byte *)((BufferPixels)original->methods[0x88 / 4])(original);
-    Byte *destination = (Byte *)((BufferPixels)enlarged->methods[0x88 / 4])(enlarged);
-    const int sourceStride = ((BufferInt)original->methods[0x8c / 4])(original);
-    const int destinationStride = ((BufferInt)enlarged->methods[0x8c / 4])(enlarged);
+    const Byte *source = (const Byte *)((BufferPixels)original->methods[PIXELS])(original);
+    Byte *destination = (Byte *)((BufferPixels)enlarged->methods[PIXELS])(enlarged);
+    const int sourceStride = ((BufferInt)original->methods[STRIDE])(original);
+    const int destinationStride = ((BufferInt)enlarged->methods[STRIDE])(enlarged);
     const int valid = source && destination && sourceStride >= width * 4 && destinationStride >= width * 8;
     if (valid) {
         // Sample at pixel centers. Apply the same weights to the premultiplied
@@ -116,14 +144,14 @@ static __attribute__((always_inline)) inline Buffer *expand(Buffer *original, Ge
 #endif
         }
     }
-    ((LockBuffer)enlarged->methods[0x1c / 4])(enlarged, writeFlags);
-    ((LockBuffer)original->methods[0x1c / 4])(original, readFlags);
+    ((LockBuffer)enlarged->methods[UNLOCK])(enlarged, writeFlags);
+    ((LockBuffer)original->methods[UNLOCK])(original, readFlags);
     if (valid) {
         return enlarged;
     }
 
 release:
-    ((ReleaseBuffer)enlarged->methods[0x08 / 4])(enlarged);
+    ((ReleaseBuffer)enlarged->methods[RELEASE])(enlarged);
     return 0;
 }
 
@@ -137,7 +165,7 @@ void expandRegionTile(Buffer **planes, GetFactory getFactory) {
             if (!enlarged[i]) {
                 for (unsigned j = 0; j < i; ++j) {
                     if (enlarged[j]) {
-                        ((ReleaseBuffer)enlarged[j]->methods[0x08 / 4])(enlarged[j]);
+                        ((ReleaseBuffer)enlarged[j]->methods[RELEASE])(enlarged[j]);
                     }
                 }
                 return;
@@ -146,7 +174,7 @@ void expandRegionTile(Buffer **planes, GetFactory getFactory) {
     }
     for (i = 0; i < 4; ++i) {
         if (enlarged[i]) {
-            ((ReleaseBuffer)planes[i]->methods[0x08 / 4])(planes[i]);
+            ((ReleaseBuffer)planes[i]->methods[RELEASE])(planes[i]);
             planes[i] = enlarged[i];
         }
     }
@@ -156,8 +184,8 @@ void expandPreviewPair(Buffer **color, Buffer **coverage, GetFactory getFactory)
     if (!color || !coverage || !*color || !*coverage || color == coverage || *color == *coverage) {
         return;
     }
-    if (((BufferInt)(*color)->methods[0x24 / 4])(*color) != ((BufferInt)(*coverage)->methods[0x24 / 4])(*coverage) ||
-        ((BufferInt)(*color)->methods[0x28 / 4])(*color) != ((BufferInt)(*coverage)->methods[0x28 / 4])(*coverage)) {
+    if (((BufferInt)(*color)->methods[WIDTH])(*color) != ((BufferInt)(*coverage)->methods[WIDTH])(*coverage) ||
+        ((BufferInt)(*color)->methods[HEIGHT])(*color) != ((BufferInt)(*coverage)->methods[HEIGHT])(*coverage)) {
         return;
     }
     Buffer *enlargedColor = expand(*color, getFactory);
@@ -166,11 +194,11 @@ void expandPreviewPair(Buffer **color, Buffer **coverage, GetFactory getFactory)
     }
     Buffer *enlargedCoverage = expand(*coverage, getFactory);
     if (!enlargedCoverage) {
-        ((ReleaseBuffer)enlargedColor->methods[0x08 / 4])(enlargedColor);
+        ((ReleaseBuffer)enlargedColor->methods[RELEASE])(enlargedColor);
         return;
     }
-    ((ReleaseBuffer)(*color)->methods[0x08 / 4])(*color);
-    ((ReleaseBuffer)(*coverage)->methods[0x08 / 4])(*coverage);
+    ((ReleaseBuffer)(*color)->methods[RELEASE])(*color);
+    ((ReleaseBuffer)(*coverage)->methods[RELEASE])(*coverage);
     *color = enlargedColor;
     *coverage = enlargedCoverage;
 }

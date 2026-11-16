@@ -3,17 +3,13 @@ package sc4
 import (
 	"archive/zip"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const (
@@ -21,9 +17,6 @@ const (
 	pythonReadyMarker = "cuda-12.8-v1.ready"
 	pythonURL         = "https://api.nuget.org/v3-flatcontainer/python/3.12.10/python.3.12.10.nupkg"
 	pythonSHA         = "0eb85c2dfccccf1b17352de4c397f69194035b7d37149eacc16f1147d93de3b8"
-	modelURL          = "https://github.com/the-database/MangaJaNai/releases/download/3.0.0/IllustrationJaNai_V3detail.zip"
-	modelSHA          = "27749962bc934779f867730cdb10617e3d7475313f920a7a966c56b75dbdbeda"
-	modelName         = "4x_IllustrationJaNai_V3detail_HAT_L_28k_bf16.safetensors"
 	rendererURL       = "https://github.com/caspervg/scd3d11/releases/download/v0.5.0/SCD3D11-v0.5.0.zip"
 	rendererSHA       = "4b2718394c78e79ac5f3161e6438399db3786778c47aa437189df5564cf53623"
 )
@@ -184,29 +177,6 @@ func (d *setupDependencies) graphics(phase int) (string, error) {
 	return output, extractOne(d.ctx, archive, graphicsDLL, output, 1<<20, "")
 }
 
-func removeIfPresent(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func checkSHA(ctx context.Context, file, want string) error {
-	f, err := os.Open(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, contextReader{ctx, f}); err != nil {
-		return err
-	}
-	if fmt.Sprintf("%x", h.Sum(nil)) != want {
-		return fmt.Errorf("unexpected SHA-256 for %s", filepath.Base(file))
-	}
-	return nil
-}
-
 func (d *setupDependencies) retryResource(phase int, label string, attempt func() error) error {
 	for {
 		if err := d.ctx.Err(); err != nil {
@@ -253,83 +223,9 @@ func (d *setupDependencies) download(phase int, label, name, url, digest string,
 }
 
 func (d *setupDependencies) downloadResource(phase int, output, url, digest string, limit int64) error {
-	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	client := http.Client{Timeout: 2 * time.Hour}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || resp.ContentLength > limit {
-		return fmt.Errorf("HTTP %s or unexpected file size", resp.Status)
-	}
-	return publishFile(output, func(w io.Writer) error {
-		h := sha256.New()
-		reader := io.LimitReader(resp.Body, limit+1)
-		buf := make([]byte, 128<<10)
-		var total int64
-		last := -1
-		w = io.MultiWriter(w, h)
-		for {
-			n, err := reader.Read(buf)
-			total += int64(n)
-			if total > limit {
-				return errors.New("download exceeds the expected file size")
-			}
-			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				return writeErr
-			}
-			if resp.ContentLength > 0 {
-				pct := int(total * 100 / resp.ContentLength)
-				if pct != last {
-					d.emit(installEvent{Type: "progress", Phase: phase, Value: pct})
-					last = pct
-				}
-			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-		}
-		if fmt.Sprintf("%x", h.Sum(nil)) != digest {
-			return fmt.Errorf("unexpected SHA-256 for %s", filepath.Base(output))
-		}
-		return nil
+	return downloadSetupFile(d.ctx, output, url, digest, limit, func(value int) {
+		d.emit(installEvent{Type: "progress", Phase: phase, Value: value})
 	})
-}
-
-func extractOne(ctx context.Context, archive, name, output string, max uint64, want string) error {
-	z, err := zip.OpenReader(archive)
-	if err != nil {
-		return err
-	}
-	defer z.Close()
-	for _, entry := range z.File {
-		if path.Base(entry.Name) != name || !entry.Mode().IsRegular() || entry.UncompressedSize64 > max {
-			continue
-		}
-		return publishFile(output, func(w io.Writer) error {
-			r, err := entry.Open()
-			if err != nil {
-				return err
-			}
-			defer r.Close()
-			h := sha256.New()
-			if _, err := io.Copy(io.MultiWriter(w, h), contextReader{ctx, r}); err != nil {
-				return err
-			}
-			if want != "" && fmt.Sprintf("%x", h.Sum(nil)) != want {
-				return fmt.Errorf("unexpected SHA-256 for %s", name)
-			}
-			return nil
-		})
-	}
-	return fmt.Errorf("%s is missing from %s", name, filepath.Base(archive))
 }
 
 func extractPython(ctx context.Context, archive, destination string) error {
