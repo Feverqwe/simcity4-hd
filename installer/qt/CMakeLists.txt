@@ -9,6 +9,7 @@ if(APPLE)
     target_link_libraries(Setup-UI PRIVATE ${CORE_GRAPHICS_FRAMEWORK} ${CORE_FOUNDATION_FRAMEWORK})
     set_target_properties(Setup-UI PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "SimCity 4 UHD Setup"
+        MACOSX_BUNDLE_ICON_FILE "setup.icns"
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.feverqwe.simcity4uhd.setup")
 endif()
 target_compile_features(Setup-UI PRIVATE cxx_std_23)

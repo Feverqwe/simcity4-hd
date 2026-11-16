@@ -13,10 +13,6 @@ import (
 	"unsafe"
 )
 
-func swapMacApps(first, second string) error {
-	return renameMacPath(first, second, C.RENAME_SWAP)
-}
-
 func moveNewMacTextureArchive(from, to string) error {
 	return renameMacPath(from, to, C.RENAME_EXCL)
 }

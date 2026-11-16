@@ -30,14 +30,14 @@ func runInstaller(args []string) int {
 			world.active, err = preparedMacPackages(&args[4])
 		}
 		if err == nil {
-			err = stageMacGame(context.Background(), args[1], args[2], output, world, nil, os.Stdout)
+			err = stageMacGame(context.Background(), args[1], args[2], output, world, os.Stdout)
 		}
 	case len(args) == 4 && args[0] == "stage-world":
 		output = args[3]
 		var world macWorldPlan
 		world.active, err = preparedMacPackages(&args[2])
 		if err == nil {
-			err = stageMacGame(context.Background(), args[1], "", output, world, nil, os.Stdout)
+			err = stageMacGame(context.Background(), args[1], "", output, world, os.Stdout)
 		}
 	default:
 		fmt.Fprintln(os.Stderr, "usage: simcity4-uhd setup stage STOCK.app UI_BUILD NEW_COPY.app [WORLD_BUILD]")
@@ -52,8 +52,8 @@ func runInstaller(args []string) int {
 	return 0
 }
 
-func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldPlan, sources *macSetupSources, diagnostics io.Writer) error {
-	gameData, mac, err := gameDataDirectory(stock)
+func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldPlan, diagnostics io.Writer) error {
+	_, mac, err := gameDataDirectory(stock)
 	if err != nil {
 		return err
 	}
@@ -71,6 +71,31 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 	if _, err := os.Lstat(output); err == nil {
 		return fmt.Errorf("%s already exists", output)
 	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(output), ".sc4-uhd-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	bundle := filepath.Join(stage, filepath.Base(output))
+	if err := runMacSetupTool(ctx, "/usr/bin/ditto", stock, bundle); err != nil {
+		return err
+	}
+	if err := prepareMacGame(ctx, stock, gameExecutablePath(stock, true), ui, bundle, stage, world, nil, diagnostics); err != nil {
+		return err
+	}
+	if err := signMacSetupBundle(ctx, bundle); err != nil {
+		return err
+	}
+	return os.Rename(bundle, output)
+}
+
+// prepareMacGame writes the managed files into a staging tree. The standalone
+// stage command supplies a full copy, while the installer supplies an empty tree.
+func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage string, world macWorldPlan, sources *macSetupSources, diagnostics io.Writer) error {
+	gameData, _, err := gameDataDirectory(stock)
+	if err != nil {
 		return err
 	}
 	var uiPackages []string
@@ -96,10 +121,10 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 	}
 	var patched []byte
 	if ui != "" {
-		patched, err = macSetupExecutable(stock, ui, uiPackages, worldScale, installed, sources)
+		patched, err = macSetupExecutable(originalExe, ui, uiPackages, worldScale, installed, sources)
 	} else {
 		var original []byte
-		original, err = os.ReadFile(gameExecutablePath(stock, true))
+		original, err = os.ReadFile(originalExe)
 		if err == nil {
 			var scale int
 			var options uiExecutableOptions
@@ -132,11 +157,6 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 			return err
 		}
 	}
-	stage, err := os.MkdirTemp(filepath.Dir(output), ".sc4-uhd-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
 	if len(uiPackages) != 0 {
 		if err := refreshMacKeyboardHelp(ctx, gameData, stage, uiPackages); err != nil {
 			return fmt.Errorf("update keyboard shortcuts: %w", err)
@@ -159,15 +179,17 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 			return err
 		}
 	}
-	bundle := filepath.Join(stage, filepath.Base(output))
-	if err := runMacSetupTool(ctx, "/usr/bin/ditto", stock, bundle); err != nil {
+	executable := gameExecutablePath(bundle, true)
+	if err := os.MkdirAll(filepath.Dir(executable), 0755); err != nil {
 		return err
 	}
-	executable := gameExecutablePath(bundle, true)
 	if err := os.WriteFile(executable, patched, 0755); err != nil {
 		return err
 	}
 	plugins := macModPlugins(bundle)
+	if err := os.MkdirAll(filepath.Dir(plugins), 0755); err != nil {
+		return err
+	}
 	if err := os.Mkdir(plugins, 0755); err != nil {
 		return err
 	}
@@ -181,7 +203,7 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 	}
 	if len(world.inactive) != 0 {
 		folder := macInactiveWorld(bundle)
-		if err := os.Mkdir(folder, 0755); err != nil {
+		if err := os.MkdirAll(folder, 0755); err != nil {
 			return err
 		}
 		for _, path := range world.inactive {
@@ -195,7 +217,7 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 	}
 	if len(inactiveCursor) != 0 {
 		folder := macInactiveCursor(bundle)
-		if err := os.Mkdir(folder, 0755); err != nil {
+		if err := os.MkdirAll(folder, 0755); err != nil {
 			return err
 		}
 		for _, path := range inactiveCursor {
@@ -209,7 +231,7 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 		if reusedUI.bundle != "" {
 			fontSource = filepath.Join(reusedUI.bundle, "Contents", "GameData", "Fonts")
 		}
-		if err := stageMacRussianFonts(bundle, fontSource); err != nil {
+		if err := stageMacRussianFonts(stock, bundle, fontSource); err != nil {
 			return err
 		}
 	}
@@ -224,7 +246,11 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 			return err
 		}
 	}
-	steamLibrary := filepath.Join(bundle, "Contents", "MacOS", "libsteam_api.dylib")
+	return nil
+}
+
+func signMacSetupBundle(ctx context.Context, bundle string) error {
+	steamLibrary := filepath.Join(bundle, macSetupSteamLibrary)
 	if err := runMacSetupTool(ctx, "/usr/bin/codesign", "--force", "--sign", "-", steamLibrary); err != nil {
 		return err
 	}
@@ -234,21 +260,24 @@ func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldP
 	if err := runMacSetupTool(ctx, "/usr/bin/codesign", "--verify", "--strict", "--deep", bundle); err != nil {
 		return err
 	}
-	return os.Rename(bundle, output)
+	return nil
 }
 
-func stageMacRussianFonts(bundle, fontSource string) error {
+func stageMacRussianFonts(stock, bundle, fontSource string) error {
 	fonts := filepath.Join(bundle, "Contents", "GameData", "Fonts")
+	if err := os.MkdirAll(fonts, 0755); err != nil {
+		return err
+	}
 	for _, name := range russianFontFiles {
 		target := filepath.Join(fonts, name)
-		info, err := os.Lstat(target)
+		info, err := os.Lstat(filepath.Join(stock, "Contents", "GameData", "Fonts", name))
 		if err != nil {
 			return err
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("%s is not a regular game font", target)
 		}
-		if err := os.Remove(target); err != nil {
+		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if err := copyRegular(filepath.Join(fontSource, name), target); err != nil {
@@ -291,7 +320,7 @@ func macWorldPackageScale(packages []string) (int, error) {
 	return scale, nil
 }
 
-func macSetupExecutable(stock, ui string, packages []string, worldScale int, installed *macSetupBuild, sources *macSetupSources) ([]byte, error) {
+func macSetupExecutable(originalExe, ui string, packages []string, worldScale int, installed *macSetupBuild, sources *macSetupSources) ([]byte, error) {
 	scale, err := macHUDScale(packages)
 	if err != nil {
 		return nil, err
@@ -299,7 +328,7 @@ func macSetupExecutable(stock, ui string, packages []string, worldScale int, ins
 	if worldScale != 0 && worldScale != scale {
 		return nil, errors.New("UI and World must use the same texture scale")
 	}
-	original, err := os.ReadFile(gameExecutablePath(stock, true))
+	original, err := os.ReadFile(originalExe)
 	if err != nil {
 		return nil, err
 	}
@@ -359,10 +388,7 @@ func macSetupExecutable(stock, ui string, packages []string, worldScale int, ins
 				if sources.overrideLoadingPreview {
 					options.loadingPreview = installed.LoadingPreview
 				}
-				if sources.overrideRetinaText {
-					options.retinaText = installed.RetinaText
-				}
-				installed.RetinaText = options.retinaText
+				options.retinaText = installed.RetinaText
 				installed.RegionMap = options.regionMap
 				installed.LoadingPreview = options.loadingPreview
 				if options != preparedOptions {

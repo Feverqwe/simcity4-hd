@@ -133,6 +133,38 @@ QString expandPath(QString input) {
     return QDir::toNativeSeparators(input);
 }
 
+QJsonObject applyPlatformOverrides(QJsonObject config, const QString &platform) {
+    const auto overrides = config.take("platforms").toObject().value(platform).toObject();
+    for (auto it = overrides.constBegin(); it != overrides.constEnd(); ++it)
+        config.insert(it.key(), it.value());
+    return config;
+}
+
+QJsonObject resolveManifest(QJsonObject config) {
+#ifdef Q_OS_WIN
+    const auto platform = QStringLiteral("windows");
+#elif defined(Q_OS_MACOS)
+    const auto platform = QStringLiteral("macos");
+#else
+    const QString platform;
+#endif
+    config = applyPlatformOverrides(std::move(config), platform);
+    for (const auto *key : {"paths", "options"}) {
+        const auto items = config.value(key).toArray();
+        QJsonArray resolved;
+        for (const auto &value : items) {
+            auto item = value.toObject();
+            const auto target = item.value("platform").toString();
+            if (target.isEmpty() || target == platform)
+                resolved.append(applyPlatformOverrides(std::move(item), platform));
+        }
+        config.insert(key, resolved);
+    }
+    const auto resolution = config.value("displayResolution").toObject();
+    config.insert("displayResolution", applyPlatformOverrides(resolution, platform));
+    return config;
+}
+
 QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
     auto *picker = new QComboBox(parent);
     QSize current;
@@ -459,6 +491,7 @@ public:
             for (const auto &value : options) {
                 const auto info = value.toObject();
                 const auto id = info.value("id").toString();
+                const auto backendId = info.value("backendId").toString(id);
                 const auto required = info.value("requires").toString();
                 const auto group = info.value("group").toString();
                 if (!group.isEmpty()) {
@@ -488,7 +521,7 @@ public:
                     row->addWidget(picker);
                     row->addStretch();
                     rows->addLayout(row);
-                    choices.append({id, required, picker, caption, defaultIndex});
+                    choices.append({backendId, required, picker, caption, defaultIndex});
                     continue;
                 }
                 auto *box = new QCheckBox(label);
@@ -502,7 +535,7 @@ public:
                     row->addWidget(box);
                     rows->addLayout(row);
                 }
-                checkboxes.append({id, required, box, defaultChecked});
+                checkboxes.append({id, backendId, required, box, defaultChecked});
                 connect(box, &QCheckBox::toggled, this, [this] { updateDependencies(); });
             }
             form->addRow(list);
@@ -746,13 +779,13 @@ private:
     };
 
     struct Option {
-        QString id, required;
+        QString id, backendId, required;
         QCheckBox *box;
         bool defaultChecked;
     };
 
     struct Choice {
-        QString id, required;
+        QString backendId, required;
         QComboBox *picker;
         QLabel *caption;
         int defaultIndex;
@@ -914,10 +947,10 @@ private:
             if (resolution)
                 args << "-" + resolutionFlag << resolution->currentData().toString();
             for (const auto &option : checkboxes)
-                args << "-" + option.id + "=" + (option.box->isEnabled() && option.box->isChecked() ? "true" : "false");
+                args << "-" + option.backendId + "=" + (option.box->isEnabled() && option.box->isChecked() ? "true" : "false");
             for (const auto &choice : choices)
                 if (choice.picker->isEnabled())
-                    args << "-" + choice.id + "=" + choice.picker->currentData().toString();
+                    args << "-" + choice.backendId + "=" + choice.picker->currentData().toString();
         }
         return args;
     }
@@ -1061,11 +1094,11 @@ private:
                     status->setText(config.value("installedText").toString(tr("Installation complete.")));
                 const auto values = settings.value("options").toObject();
                 for (const auto &option : checkboxes)
-                    if (values.contains(option.id))
-                        option.box->setChecked(values.value(option.id).toBool());
+                    if (values.contains(option.backendId))
+                        option.box->setChecked(values.value(option.backendId).toBool());
                 const auto selections = settings.value("choices").toObject();
                 for (const auto &choice : choices) {
-                    const int index = choice.picker->findData(selections.value(choice.id).toString());
+                    const int index = choice.picker->findData(selections.value(choice.backendId).toString());
                     if (index >= 0)
                         choice.picker->setCurrentIndex(index);
                 }
@@ -1309,6 +1342,7 @@ int main(int argc, char **argv) {
 #ifdef Q_OS_MACOS
     if (args.size() == 1) {
         const QDir bin(QCoreApplication::applicationDirPath());
+        qputenv("SETUP_EXE_DIR", QFile::encodeName(QDir::cleanPath(bin.filePath("../../.."))));
         args << bin.filePath("simcity4-uhd") << bin.filePath("../Resources/setup.json");
     }
 #endif
@@ -1317,7 +1351,7 @@ int main(int argc, char **argv) {
     QFile file(args.at(2));
     QJsonObject config;
     if (file.open(QIODevice::ReadOnly))
-        config = QJsonDocument::fromJson(file.readAll()).object();
+        config = resolveManifest(QJsonDocument::fromJson(file.readAll()).object());
     if (config.value("product").toString().isEmpty()) {
         QMessageBox::critical(nullptr, QObject::tr("Setup"), QObject::tr("The setup configuration is missing or invalid."));
         return 1;

@@ -10,12 +10,18 @@ The manifest needs a `product` display name. Optional `paths` describe
 directory inputs with an `id`, a `label`, and a `browse` title.
 Set `inspectOnChange` on the product directory to inspect a new selection.
 A `default` may start with an environment variable placeholder such as
-`${LOCALAPPDATA}`. The portable launcher supplies `${SETUP_EXE_DIR}` as the
-directory containing the setup EXE. Mark a path `required` to prompt for a
+`${LOCALAPPDATA}`. Packaged setup supplies `${SETUP_EXE_DIR}` as the
+directory containing the setup EXE or app bundle. Mark a path `required` to prompt for a
 value if it is empty when the user starts an installation. Use `options` for boolean
 switches, each with an `id`, `label`, and boolean `default`. An optional
 `group` starts a titled group. An optional `requires` names a preceding
 checkbox. Dependent options are disabled when their parent is off.
+To share a manifest across systems, use `platforms` overrides keyed by
+`windows` or `macos` at the top level, on `displayResolution`, or on
+individual paths and options. Use `platform` on a path or option to show
+it only on that system. An option can specify `backendId` to use a different
+name in backend arguments and installed settings while keeping its `id`
+for dependencies.
 For a dropdown, provide a `values` array of string `value` and `label`
 pairs and a string `default`. Optionally map system UI language codes to
 dropdown values in `localeDefaults`. If `localeDefaultFiles` lists files,
@@ -57,7 +63,7 @@ Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 | `progress` | `value` is measured progress for the current step, from 0 to 100. The next step restores the busy indicator. |
 | `count` | `value` counts units processed in the current step. An optional positive `total` sets the progress bar and displays both counts. |
 | `overall` | `value` is the number of completed stages out of `total` for the operation. This updates a separate progress bar. |
-| `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, enable `reconfigure` and send a nonempty `settings` object. Its `options` and `choices` objects supply checkbox and dropdown values by manifest ID. Its `resolution` supplies the display resolution. |
+| `installed` | An optional `path` is the installed launcher. To offer Configure and Remove, enable `reconfigure` and send a nonempty `settings` object. Its `options` and `choices` objects supply checkbox and dropdown values by `backendId` if set, or by `id`. Its `resolution` supplies the display resolution. |
 | `removed` | Removal succeeded. Returning to the start runs a fresh inspection. |
 | `textures-transferred` | The archive operation succeeded. |
 | `retry-resource` | `text` describes a recoverable download failure. A line containing `retry` on stdin retries the resource in the current operation. EOF requests a pause. |

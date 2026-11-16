@@ -103,10 +103,13 @@ func availableMacPreparedUI(bundle, path string) string {
 	if err != nil {
 		return ""
 	}
-	stock := filepath.Join(macSetupBackup(bundle), filepath.Base(bundle))
+	stock, err := macSetupSavedFiles(bundle)
+	if err != nil {
+		return ""
+	}
 	// An old executable in a remembered build would override the installed
 	// assets on Configure. Only offer a build that can be selected again.
-	if _, err := macSetupExecutable(stock, path, packages, 0, nil, nil); err != nil {
+	if _, err := macSetupExecutable(gameExecutablePath(stock, true), path, packages, 0, nil, nil); err != nil {
 		return ""
 	}
 	return path

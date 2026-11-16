@@ -9,7 +9,7 @@ A **SimCity 4 Deluxe** mod for playing your existing cities at 4K, with a larger
 | Platform | Required Steam edition | Display support |
 | --- | --- | --- |
 | [Windows x64](#install-on-windows) | Original SimCity 4 Deluxe 1.1.641.0 (build 4644414) | Direct3D 11 through SCD3D11. In-game display changes apply after a restart. |
-| [macOS on Apple silicon](#install-on-macos) (experimental) | Aspyr SimCity 4 Deluxe 1.2.1 (build 185949), running through Rosetta | Aspyr OpenGL, live resolution and window mode changes, resizable windows, and optional Retina text. |
+| [macOS on Apple silicon](#install-on-macos) (experimental) | Aspyr SimCity 4 Deluxe 1.2.1 (build 185949), running through Rosetta | Aspyr OpenGL, live resolution and window mode changes, resizable windows, and Retina text with the HD interface. |
 
 With the UHD interface enabled, **Graphics Options** offers a choice of resolution and windowed, fullscreen, or borderless fullscreen mode. Borderless fullscreen uses the desktop resolution.
 
@@ -73,7 +73,7 @@ Setup shows installation steps and errors below the progress bar. Session logs a
 2. Close SimCity 4, open **SimCity 4 UHD Setup**, and select **Install**. If setup cannot find your Aspyr Steam installation, choose the game folder.
 3. After installation, launch through Steam to play with your usual profile.
 
-Generating missing textures on the Mac uses Metal and requires macOS 14 or later. You can also import a texture archive or use prepared macOS builds.
+Generating missing textures on the Mac uses Metal and requires macOS 14 or later. You can also import a texture archive.
 
 See the [macOS installer guide](installer/README.md#experimental-macos-setup) for texture sources, configuration, and removal.
 

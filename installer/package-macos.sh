@@ -75,7 +75,8 @@ cmake --install "$build/qt" --config Release --prefix "$stage"
 app="$stage/SimCity 4 UHD Setup.app"
 mv "$stage/qt/Setup-UI.app" "$app"
 mkdir -p "$app/Contents/Resources/Russian"
-cp "$public/installer/setup-macos.json" "$app/Contents/Resources/setup.json"
+cp "$public/installer/setup.json" "$public/assets/screenshot.jpg" "$app/Contents/Resources/"
+/usr/bin/sips -s format icns "$public/installer/setup.ico" --out "$app/Contents/Resources/setup.icns" >/dev/null
 cp "$public/installer/resources/russian.sc4pack" "$public/installer/resources/FONT-LICENSES.txt" "$app/Contents/Resources/Russian/"
 (cd "$public" && GOOS=darwin GOARCH="$goarch" CGO_ENABLED=1 go build -trimpath -ldflags "-X main.version=$version" -o "$app/Contents/MacOS/simcity4-uhd" .)
 "$deploy" "$app" -no-strip

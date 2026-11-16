@@ -8,7 +8,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +27,6 @@ type macSetupSources struct {
 	resolution int
 
 	overrideRegionMap, overrideLoadingPreview, overrideCursors, overrideLanguage bool
-	overrideRetinaText                                                           bool
 }
 
 type macSetupRecord struct {
@@ -112,6 +110,22 @@ func runMacSetup(args []string) int {
 		return fail("game", err)
 	}
 	if args[0] == "inspect" {
+		if _, err := os.Lstat(macSetupTransactionDir(bundle)); !errors.Is(err, os.ErrNotExist) {
+			unlock, err := lockMacSetup(bundle)
+			if err != nil {
+				return fail("", err)
+			}
+			defer unlock()
+			if err := ensureMacSetupGameClosed(); err != nil {
+				return fail("", err)
+			}
+			if err := validateMacSetupDirectories(bundle); err != nil {
+				return fail("", err)
+			}
+			if err := recoverMacSetup(bundle); err != nil {
+				return fail("", err)
+			}
+		}
 		if detected {
 			send(macSetupEvent{Type: "field", Field: "game", Path: game})
 		}
@@ -234,7 +248,13 @@ func findMacSetupGame(path string) string {
 		}
 		exe, exeErr := os.Stat(gameExecutablePath(candidate, true))
 		data, dataErr := os.Stat(filepath.Join(candidate, "Contents", "GameData", "SimCity_1.dat"))
-		if exeErr == nil && dataErr == nil && exe.Mode().IsRegular() && data.Mode().IsRegular() {
+		if dataErr != nil || !data.Mode().IsRegular() {
+			continue
+		}
+		if exeErr == nil && exe.Mode().IsRegular() {
+			return candidate
+		}
+		if _, err := os.Lstat(macSetupTransactionDir(candidate)); err == nil {
 			return candidate
 		}
 	}
@@ -308,17 +328,21 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 	}
 	parent := filepath.Dir(bundle)
 	backup := macSetupBackup(bundle)
-	original := filepath.Join(backup, filepath.Base(bundle))
-	lock := backup + ".lock"
-	if err := os.Mkdir(lock, 0700); err != nil {
-		return fmt.Errorf("could not lock the Steam installation: %w", err)
+	unlock, err := lockMacSetup(bundle)
+	if err != nil {
+		return err
 	}
-	defer os.Remove(lock)
+	defer unlock()
 	if err := ensureMacSetupGameClosed(); err != nil {
 		return err
 	}
-
-	stock := bundle
+	if err := validateMacSetupDirectories(bundle); err != nil {
+		return err
+	}
+	if err := recoverMacSetup(bundle); err != nil {
+		return err
+	}
+	original := bundle
 	var current macSetupRecord
 	if action == "install" {
 		if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
@@ -327,43 +351,56 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 			}
 			return err
 		}
+		for _, path := range []string{macModPlugins(bundle), macInactiveWorld(bundle), macInactiveCursor(bundle)} {
+			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				if err == nil {
+					return fmt.Errorf("An existing mod path needs to be removed before installing: %s", path)
+				}
+				return err
+			}
+		}
 	} else {
-		stock = original
-		var err error
+		original, err = macSetupSavedFiles(bundle)
+		if err != nil {
+			return err
+		}
 		current, err = checkManagedMacBundle(ctx, bundle)
 		if err != nil {
 			return err
 		}
 	}
-	if err := checkStockMacSetup(stock); err != nil {
+	if err := checkStockMacSetup(original); err != nil {
 		return err
 	}
+
+	stage, err := prepareMacSetupWork(bundle)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	staged := filepath.Join(stage, "files")
 	if action == "remove" {
-		send(macSetupEvent{Type: "step", Text: "Restoring the original Steam app…"})
+		send(macSetupEvent{Type: "step", Text: "Restoring the original Steam files…"})
+		if err := copyMacSetupPaths(ctx, original, staged, macSetupOriginalPaths()); err != nil {
+			return err
+		}
 		if err := ensureMacSetupGameClosed(); err != nil {
+			return err
+		}
+		if _, err := checkManagedMacBundle(ctx, bundle); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := swapMacApps(bundle, original); err != nil {
-			return err
-		}
-		// The swapped-out mod is no longer part of the Steam installation.
-		if err := os.RemoveAll(original); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not clean up %s: %v\n", original, err)
-		}
-		_ = os.Remove(backup)
-		return nil
+		return applyMacSetupFiles(bundle, stage, staged, "", true, func() error {
+			return checkStockMacSetup(bundle)
+		})
 	}
 
 	var installed string
 	if action == "configure" {
 		installed = bundle
-		if current.Build != nil && !sources.overrideRetinaText {
-			sources.Build.RetinaText = current.Build.RetinaText
-			sources.overrideRetinaText = true
-		}
 		var err error
 		sources.reusedUI, err = planMacInstalledInterface(bundle, current, sources)
 		if err != nil {
@@ -380,7 +417,6 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 	if !sources.Build.Interface {
 		sources.Build.RetinaText = false
 	}
-	var err error
 	sources.world, err = planMacWorld(installed, current, *sources.Build, sources.world.active)
 	if err != nil {
 		return err
@@ -400,32 +436,16 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 		if err != nil {
 			return macSetupInputError{"cache", err}
 		}
-		if insideFolder(bundle, cache) || insideFolder(backup, cache) {
-			return macSetupInputError{"cache", errors.New("Choose a texture cache outside the Steam app and its setup backup.")}
+		if insideFolder(bundle, cache) || insideFolder(backup, cache) || insideFolder(stage, cache) ||
+			insideFolder(macSetupTransactionDir(bundle), cache) {
+			return macSetupInputError{"cache", errors.New("Choose a texture cache outside the game and setup work folders.")}
 		}
 		sources.Cache = cache
 	}
 	send(macSetupEvent{Type: "step", Text: "Checking available disk space…"})
-	if err := checkMacSetupSpace(stock, parent, sources, sources.buildSpace()); err != nil {
+	if err := checkMacSetupSpace(parent, sources, sources.buildSpace()); err != nil {
 		return err
 	}
-	stage := backup
-	if action == "install" {
-		if err := os.Mkdir(stage, 0700); err != nil {
-			return err
-		}
-	} else {
-		stage, err = os.MkdirTemp(parent, ".sc4-setup-*")
-		if err != nil {
-			return err
-		}
-	}
-	keep := false
-	defer func() {
-		if !keep {
-			_ = os.RemoveAll(stage)
-		}
-	}()
 	nextStage()
 	prepared := sources
 	if sources.needsBuild() {
@@ -434,21 +454,31 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 			return err
 		}
 		defer os.RemoveAll(work)
-		prepared, err = prepareMacSetupBuild(ctx, stock, work, sources, send, retry, nextStage)
+		prepared, err = prepareMacSetupBuild(ctx, bundle, gameExecutablePath(original, true), work, sources, send, retry, nextStage)
 		if err != nil {
 			return err
 		}
-		if err := checkMacSetupSpace(stock, parent, prepared, 0); err != nil {
+		if err := checkMacSetupSpace(parent, prepared, 0); err != nil {
 			return err
 		}
 	}
 	send(macSetupEvent{Type: "step", Text: "Checking the texture packages and preparing the Steam patch…"})
-	staged := filepath.Join(stage, filepath.Base(bundle))
-	if err := stageMacGame(ctx, stock, prepared.UI, staged, prepared.world, &sources, os.Stderr); err != nil {
+	if err := copyMacSetupPaths(ctx, original, staged, macSetupSupportPaths()); err != nil {
+		return err
+	}
+	if err := prepareMacGame(ctx, bundle, gameExecutablePath(original, true), prepared.UI, staged, stage, prepared.world, &sources, os.Stderr); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return err
+	}
+	var stagedBackup string
+	if original != filepath.Join(backup, macSetupOriginalFiles) {
+		stagedBackup = filepath.Join(stage, "original")
+		saved := filepath.Join(stagedBackup, macSetupOriginalFiles)
+		if err := copyMacSetupPaths(ctx, original, saved, macSetupOriginalPaths()); err != nil {
+			return err
+		}
 	}
 	if err := ensureMacSetupGameClosed(); err != nil {
 		return err
@@ -466,11 +496,12 @@ func changeMacInstallation(ctx context.Context, action, bundle string, sources m
 	nextStage()
 	send(macSetupEvent{Type: "step", Text: "Applying changes to the Steam app…"})
 	if err := publishMacResolution(sources.resolution, func() error {
-		return swapMacApps(bundle, staged)
+		return applyMacSetupFiles(bundle, stage, staged, stagedBackup, stagedBackup != "", func() error {
+			return signMacSetupBundle(ctx, bundle)
+		})
 	}); err != nil {
 		return err
 	}
-	keep = action == "install"
 	nextStage()
 	return nil
 }
@@ -487,7 +518,7 @@ func checkManagedMacBundle(ctx context.Context, bundle string) (macSetupRecord, 
 	if err != nil {
 		return receipt, fmt.Errorf("The patched game has changed since setup installed it. The Steam files and original backup were left in place: %w", err)
 	}
-	// Steam can restore a signed executable. Do not swap out a stock or
+	// Steam can restore a signed executable. Do not modify a stock or
 	// updated bundle that merely has the setup receipt left in Plugins.
 	hash, err := macSetupExecutableHash(bundle)
 	if err != nil {
@@ -512,25 +543,10 @@ func ensureMacSetupGameClosed() error {
 	}
 }
 
-func checkMacSetupSpace(stock, parent string, sources macSetupSources, buildBytes uint64) error {
+func checkMacSetupSpace(parent string, sources macSetupSources, buildBytes uint64) error {
 	needed := uint64(128<<20) + buildBytes
 	if sources.reusedUI.bundle == "" && sources.Build != nil && sources.Build.Interface {
 		needed += 130 << 20
-	}
-	if err := filepath.WalkDir(stock, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type().IsRegular() {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			needed += uint64(info.Size())
-		}
-		return nil
-	}); err != nil {
-		return err
 	}
 	uiPackages := sources.reusedUI.packages
 	if sources.UI != "" {

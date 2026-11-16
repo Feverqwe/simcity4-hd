@@ -41,19 +41,14 @@ build 185949). Choose Interface, World, or both. On Apple silicon with
 macOS 14 or later, setup downloads the upscaling tools as needed and builds
 missing textures on the GPU. Use **More actions → Import texture images**
 to load an Aspyr texture archive, or choose an existing texture cache under
-**Advanced options**.
-You can also select prepared macOS texture builds from the
-[builder CLI](../docs/advanced.md#test-on-macos). Use the same texture scale
-for both components when installing them together.
-Under **Advanced options**, set the startup resolution, skip the intro, or
-show Aspyr's FPS counter. Setup reads the saved resolution when you reopen
-**Configure**.
+**Advanced options**. By default, setup stores textures in a
+`SimCity4UHDCache` folder next to the setup app.
+Under **Advanced options**, set the startup resolution or skip the intro.
+Setup reads the saved resolution when you reopen **Configure**.
 Setup keeps its session logs in `~/Library/Logs/SimCity4HD`.
 
 Close the game and wait for any Steam updates to finish before applying
 changes. After setup, launch the game through Steam with your usual profile.
 Reopen setup to configure the mod or use **More actions → Remove mod** to
-restore the original app. Keep the original backup next to the game until
-you remove the mod.
-Setup can reuse the installed interface when its options stay the same,
-even if you moved the prepared build folder.
+restore the original game files. Keep the setup backup next to the game
+until you remove the mod.

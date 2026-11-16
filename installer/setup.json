@@ -24,7 +24,11 @@
       "default": "${SETUP_EXE_DIR}/SimCity4UHDCache"
     }
   ],
-  "displayResolution": { "id": "resolution", "fallback": "3840x2160" },
+  "displayResolution": {
+    "id": "resolution",
+    "fallback": "3840x2160",
+    "platforms": { "macos": { "fallback": "auto" } }
+  },
   "options": [
     {
       "id": "keep-upscaled-images",
@@ -44,7 +48,8 @@
       "id": "ui",
       "label": "Upscale interface textures and apply UI fixes",
       "default": true,
-      "group": "Interface"
+      "group": "Interface",
+      "platforms": { "macos": { "backendId": "interface" } }
     },
     {
       "id": "language",
@@ -80,7 +85,8 @@
       "id": "world",
       "label": "Upscale world textures",
       "default": true,
-      "group": "World"
+      "group": "World",
+      "platforms": { "macos": { "backendId": "world-textures" } }
     },
     {
       "id": "network",
@@ -104,12 +110,14 @@
       "id": "draw-stats",
       "label": "Log renderer statistics",
       "default": false,
-      "group": "Game launch"
+      "group": "Game launch",
+      "platform": "windows"
     },
     {
       "id": "skip-intro",
       "label": "Skip the game intro",
-      "default": true
+      "default": true,
+      "platforms": { "macos": { "group": "Game launch" } }
     }
   ],
   "pausingText": "Pausing… Completed textures will be kept.",
@@ -120,5 +128,12 @@
   "backendArgs": [
     "setup"
   ],
-  "icon": "setup.ico"
+  "icon": "setup.ico",
+  "platforms": {
+    "macos": {
+      "icon": null,
+      "completionUrl": "steam://rungameid/24780",
+      "sessionLogDirectory": "${HOME}/Library/Logs/SimCity4HD"
+    }
+  }
 }

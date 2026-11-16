@@ -34,7 +34,7 @@ func (b *macSetupBuild) flags(flags *flag.FlagSet) {
 	flags.BoolVar(&b.Cursors, "hd-cursors", true, "use larger game cursors")
 	flags.BoolVar(&b.RegionMap, "region-map", true, "use a larger region map")
 	flags.BoolVar(&b.LoadingPreview, "loading-preview", true, "use a larger loading preview")
-	flags.BoolVar(&b.RetinaText, "retina-text", false, "render text at Retina density")
+	flags.BoolVar(&b.RetinaText, "retina-text", true, "render text at Retina density")
 	flags.BoolVar(&b.World, "world-textures", true, "install UHD world textures")
 	flags.BoolVar(&b.Network, "network", true, "upscale roads and rail")
 	flags.BoolVar(&b.Terrain, "terrain", true, "upscale terrain")
@@ -105,7 +105,6 @@ func (s *macSetupSources) readPreparedSettings(flags *flag.FlagSet) error {
 	s.overrideLoadingPreview = explicit["loading-preview"]
 	s.overrideCursors = explicit["hd-cursors"]
 	s.overrideLanguage = explicit["language"]
-	s.overrideRetinaText = explicit["retina-text"]
 	checkScale := func(field string, prepared int) error {
 		if explicit["texture-scale"] && prepared != s.Build.Scale {
 			return macSetupInputError{field, fmt.Errorf(
@@ -229,7 +228,7 @@ func (s macSetupSources) buildSpace() uint64 {
 	return 2 * installed // Prepared packages and their staged game copies coexist.
 }
 
-func prepareMacSetupBuild(ctx context.Context, stock, work string, sources macSetupSources, send func(macSetupEvent), retry func() error, nextStage func()) (macSetupSources, error) {
+func prepareMacSetupBuild(ctx context.Context, stock, originalExe, work string, sources macSetupSources, send func(macSetupEvent), retry func() error, nextStage func()) (macSetupSources, error) {
 	cache := sources.Cache
 	unlock, err := lockMacTextureCache(cache)
 	if err != nil {
@@ -271,7 +270,11 @@ func prepareMacSetupBuild(ctx context.Context, stock, work string, sources macSe
 			}
 			args = append(args, "-russian", russian)
 		}
-		if err := buildUIWithProgress(ctx, append(args, stock, cache, output), progress); err != nil {
+		executable, err := os.ReadFile(originalExe)
+		if err != nil {
+			return sources, err
+		}
+		if err := buildUIFromExecutable(ctx, append(args, stock, cache, output), progress, executable); err != nil {
 			return sources, err
 		}
 		sources.UI = output
