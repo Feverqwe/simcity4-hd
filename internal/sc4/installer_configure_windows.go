@@ -16,6 +16,7 @@ import (
 
 const inactiveWorldFolder = ".simcity4hd-world"
 const installedCacheFile = "CachePath.txt"
+const installedKeepImagesFile = "KeepUpscaledImages"
 const installedFilesFile = "InstalledFiles.txt"
 const installedWorldSelectionFile = "WorldSelection.txt"
 const installedSettingsChangesFile = "SettingsChanges.json"
@@ -100,6 +101,7 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 	}
 	settings.Options["ui"] = executableHash(executable) != stockEXEHash
 	settings.Options["world"] = false
+	settings.Options["keep-upscaled-images"] = fileExists(filepath.Join(active, installedKeepImagesFile))
 	var ui uiExecutableOptions
 	if settings.Options["ui"] {
 		ui, err = installedInterface(executable, fileExists(filepath.Join(active, "cursors-hd.dat")) ||
@@ -185,6 +187,16 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, u
 		settings.Options["draw-stats"] = false
 	}
 	return settings, ui, nil
+}
+
+func writeSetupCacheSettings(stage, cache string, keepImages bool) error {
+	if err := os.WriteFile(filepath.Join(stage, installedCacheFile), []byte(cache), 0644); err != nil {
+		return err
+	}
+	if keepImages {
+		return os.WriteFile(filepath.Join(stage, installedKeepImagesFile), nil, 0644)
+	}
+	return nil
 }
 
 func reportInstalled(game string, emit func(installEvent)) error {
@@ -581,7 +593,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 				}
 			case group.directory == inactive:
 				target = newInactive
-			case name == modReceipt || name == installedCacheFile || name == installedSettingsChangesFile ||
+			case name == modReceipt || name == installedCacheFile || name == installedKeepImagesFile || name == installedSettingsChangesFile ||
 				rememberWorld && name == installedWorldSelectionFile:
 				continue
 			case name == advisorsPackage || name == installedAdvisorsState:
@@ -625,7 +637,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	}
 	phase = 2
 	if missing.any() {
-		if err := buildWorldWithProgress(ctx, setupWorldArgs(desired.textureScale, game, cache, worldStage), progress, missing); err != nil {
+		if err := buildWorldWithProgress(ctx, setupWorldArgs(desired, game, cache, worldStage), progress, missing); err != nil {
 			return err
 		}
 		generated = append(generated, filepath.Join(worldStage, "Plugins"))
@@ -706,7 +718,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err := os.WriteFile(filepath.Join(newActive, modReceipt), []byte(executableHash(finalEXE)), 0644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(newActive, installedCacheFile), []byte(cache), 0644); err != nil {
+	if err := writeSetupCacheSettings(newActive, cache, desired.keepUpscaledImages); err != nil {
 		return err
 	}
 	for _, name := range []string{graphicsINI, rendererINI} {

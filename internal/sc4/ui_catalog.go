@@ -169,6 +169,7 @@ func runCatalogSheets(args []string) error {
 			return worker.upscalePNG(png)
 		}
 	}
+	infer = cachedInference(ctx, args[1], config, infer)
 	square, bridge, err := catalogSheetEntries(args[0], args[1], 4, infer, buildProgress{})
 	if worker != nil {
 		if err != nil {

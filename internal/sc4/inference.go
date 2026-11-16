@@ -28,7 +28,7 @@ type inferenceWorker struct {
 type inferenceConfig struct {
 	distro, python, weights string
 	scale, tile, overlap    int
-	wsl                     bool
+	wsl, keepUpscaledImages bool
 	prepare                 func() (python, weights string, err error)
 }
 
@@ -39,6 +39,7 @@ func inferenceFlags(flags *flag.FlagSet) func() (inferenceConfig, error) {
 	}
 	python := flags.String("python", pythonDefault, "local Python interpreter for inference")
 	weights := flags.String("weights", "", "local checkpoint path for cache misses")
+	keepUpscaledImages := flags.Bool("keep-upscaled-images", false, "cache the model output before texture packing")
 	wslDistro := flags.String("wsl-distro", "", "WSL distribution for inference")
 	wslPython := flags.String("wsl-python", "python3", "Python interpreter in WSL")
 	wslWeights := flags.String("wsl-weights", "", "checkpoint path in WSL for cache misses")
@@ -55,7 +56,7 @@ func inferenceFlags(flags *flag.FlagSet) func() (inferenceConfig, error) {
 		if local && wsl {
 			return inferenceConfig{}, errors.New("choose either local Python options or WSL options for inference")
 		}
-		config := inferenceConfig{python: *python, weights: *weights, scale: 4, tile: 64, overlap: 16}
+		config := inferenceConfig{python: *python, weights: *weights, scale: 4, tile: 64, overlap: 16, keepUpscaledImages: *keepUpscaledImages}
 		if wsl {
 			config.wsl = true
 			config.distro, config.python, config.weights = *wslDistro, *wslPython, *wslWeights

@@ -232,7 +232,7 @@ class TextureTransferDialog : public QDialog {
 public:
     TextureTransferDialog(bool exporting, QWidget *parent)
         : QDialog(parent), exporting(exporting) {
-        setWindowTitle(exporting ? tr("Export texture images") : tr("Import texture images"));
+        setWindowTitle(exporting ? tr("Export textures") : tr("Import textures"));
         setWindowFlag(Qt::WindowContextHelpButtonHint, false);
         setMinimumWidth(420);
 
@@ -283,7 +283,7 @@ public:
             } else if (transferred && code == 0 && exit == QProcess::NormalExit) {
                 bar->setRange(0, 100);
                 bar->setValue(100);
-                finish(this->exporting ? tr("Texture images exported.") : tr("Texture images imported."), true);
+                finish(this->exporting ? tr("Textures exported.") : tr("Textures imported."), true);
             } else {
                 finish(tr("The texture transfer stopped unexpectedly. See the setup log for details."));
             }
@@ -335,14 +335,14 @@ private:
         } else if (type == "stopped") {
             stopped = true;
         } else if (!cancelled && type == "step") {
-            status->setText(exporting ? tr("Packing texture images…") : tr("Unpacking texture images…"));
+            status->setText(exporting ? tr("Packing textures…") : tr("Unpacking textures…"));
         } else if (!cancelled && type == "count") {
             const int total = event.value("total").toInt();
             if (total > 0) {
                 const int done = event.value("value").toInt();
                 bar->setRange(0, total);
                 bar->setValue(done);
-                count->setText(tr("Images processed: %L1 / %L2").arg(done).arg(total));
+                count->setText(tr("Files processed: %L1 / %L2").arg(done).arg(total));
                 count->show();
             }
         }
@@ -875,15 +875,15 @@ private:
             return;
         const auto filter = tr("Texture archives (*.zip)");
         auto path = exporting
-            ? QFileDialog::getSaveFileName(this, tr("Export texture images"),
+            ? QFileDialog::getSaveFileName(this, tr("Export textures"),
                   QDir::home().filePath("SimCity4UHD-Textures.zip"), filter, nullptr, QFileDialog::DontConfirmOverwrite)
-            : QFileDialog::getOpenFileName(this, tr("Import texture images"), QDir::homePath(), filter);
+            : QFileDialog::getOpenFileName(this, tr("Import textures"), QDir::homePath(), filter);
         if (path.isEmpty())
             return;
         if (exporting && QFileInfo(path).suffix().isEmpty())
             path += QStringLiteral(".zip");
         if (exporting && QFileInfo::exists(path)) {
-            QMessageBox::warning(this, tr("Export texture images"), tr("Choose a new file name for the archive."));
+            QMessageBox::warning(this, tr("Export textures"), tr("Choose a new file name for the archive."));
             return;
         }
         QStringList args;

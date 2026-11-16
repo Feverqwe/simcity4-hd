@@ -16,24 +16,40 @@ import (
 
 const textureArchiveRoot = "SimCity4UHD-Textures-v1/"
 
-var textureCacheFolders = map[string]*regexp.Regexp{
-	inferenceCacheFolder: regexp.MustCompile(`^[0-9a-f]{64}\.png$`),
-	interfaceAtlasFolder: uiAtlasName,
-	catalogFramesFolder:  uiAtlasName,
-	portraitsFolder:      uiAtlasName,
-	cursorsFolder:        uiAtlasName,
-}
-
 var uiAtlasName = regexp.MustCompile(`^(?:[0-9a-f]{8}-){3}[1-9][0-9]*-[0-9a-f]{64}(?:-keyed)?-x4\.png$`)
+
+var textureCacheFolders = archiveTextureFolders()
+
+func archiveTextureFolders() map[string]*regexp.Regexp {
+	folders := map[string]*regexp.Regexp{
+		inferenceCacheFolder: regexp.MustCompile(`^[0-9a-f]{64}\.png$`),
+		interfaceAtlasFolder: uiAtlasName,
+		catalogFramesFolder:  uiAtlasName,
+		portraitsFolder:      uiAtlasName,
+		cursorsFolder:        uiAtlasName,
+	}
+	fshName := regexp.MustCompile(`^[0-9a-f]{64}\.fsh$`)
+	for _, scale := range []int{2, 4} {
+		folders[filepath.ToSlash(modelCache("", scale))] = fshName
+		folders[filepath.ToSlash(networkCache("", scale))] = fshName
+		for _, category := range worldCategories {
+			folders[filepath.ToSlash(category.cacheFolder("", scale))] = fshName
+		}
+	}
+	return folders
+}
 
 func textureArchiveMember(name string) bool {
 	relative, ok := strings.CutPrefix(name, textureArchiveRoot)
 	if !ok {
 		return false
 	}
-	folder, file, ok := strings.Cut(relative, "/")
-	pattern := textureCacheFolders[folder]
-	return ok && pattern != nil && pattern.MatchString(file)
+	lastSlash := strings.LastIndexByte(relative, '/')
+	if lastSlash < 0 {
+		return false
+	}
+	pattern := textureCacheFolders[relative[:lastSlash]]
+	return pattern != nil && pattern.MatchString(relative[lastSlash+1:])
 }
 
 type textureArchiveProgress struct {
@@ -82,7 +98,7 @@ func exportTextureArchive(ctx context.Context, cache, archive string, progress t
 		}
 	}
 	if len(files) == 0 {
-		return errors.New("This texture cache has no images to export. Build textures first or choose another cache folder.")
+		return errors.New("This texture cache has no files to export. Build textures first or choose another cache folder.")
 	}
 	if progress.checkSpace != nil {
 		if err := progress.checkSpace(filepath.Dir(archive), bytesNeeded+256); err != nil {
@@ -121,7 +137,7 @@ func importTextureArchive(ctx context.Context, cache, archive string, progress t
 	}
 	defer reader.Close()
 	if len(reader.File) == 0 {
-		return errors.New("The texture archive contains no images.")
+		return errors.New("The texture archive contains no files.")
 	}
 	root, err := os.OpenRoot(cache)
 	if err != nil {
@@ -165,7 +181,7 @@ func importTextureArchive(ctx context.Context, cache, archive string, progress t
 			return err
 		}
 		name := filepath.FromSlash(strings.TrimPrefix(entry.Name, textureArchiveRoot))
-		if err := importTexturePNG(ctx, root, name, entry); err != nil {
+		if err := importTextureFile(ctx, root, name, entry); err != nil {
 			return fmt.Errorf("import %s: %w", name, err)
 		}
 		done++
@@ -174,7 +190,7 @@ func importTextureArchive(ctx context.Context, cache, archive string, progress t
 	return ctx.Err()
 }
 
-func importTexturePNG(ctx context.Context, root *os.Root, name string, entry *zip.File) error {
+func importTextureFile(ctx context.Context, root *os.Root, name string, entry *zip.File) error {
 	input, err := entry.Open()
 	if err != nil {
 		return err
@@ -185,23 +201,16 @@ func importTexturePNG(ctx context.Context, root *os.Root, name string, entry *zi
 		return err
 	}
 	if uint64(len(data)) != entry.UncompressedSize64 {
-		return errors.New("incorrect PNG size")
+		return errors.New("incorrect texture size")
 	}
-	config, err := png.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	if uint64(config.Width)*uint64(config.Height) > 64<<20 {
-		return errors.New("texture image is too large")
-	}
-	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+	if err := validateArchivedTexture(name, data); err != nil {
 		return err
 	}
 
 	// Publish only verified entries. The root prevents archive writes through
 	// links that lead outside the selected cache.
 	folder := filepath.Dir(name)
-	if err := root.Mkdir(folder, 0755); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := root.MkdirAll(folder, 0755); err != nil {
 		return err
 	}
 	file, err := os.CreateTemp(root.Name(), ".texture-import-*.tmp")
@@ -215,4 +224,40 @@ func importTexturePNG(ctx context.Context, root *os.Root, name string, entry *zi
 		return err
 	}
 	return root.Link(temp, name)
+}
+
+func validateArchivedTexture(name string, data []byte) error {
+	if filepath.Ext(name) == ".fsh" {
+		elements, err := fshLayout(data)
+		if err != nil {
+			return err
+		}
+		if len(data) != int(little.Uint32(data[4:8])) {
+			return errors.New("incorrect SHPI size")
+		}
+		// The builder validates the stock mip levels and metadata when it
+		// uses the cache, including entries from earlier packers.
+		for _, element := range elements {
+			if element.code != bc1 && element.code != bc2 {
+				return errors.New("unsupported SHPI encoding")
+			}
+			payload := element.end - element.start - 16
+			if element.stored != 0 {
+				payload = element.stored - 16
+			}
+			if bcLevelBytes(element.width, element.height, bcBlockSize(element.code)) > payload {
+				return errors.New("truncated SHPI pixel data")
+			}
+		}
+		return nil
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	if uint64(config.Width)*uint64(config.Height) > 64<<20 {
+		return errors.New("texture image is too large")
+	}
+	_, err = png.Decode(bytes.NewReader(data))
+	return err
 }

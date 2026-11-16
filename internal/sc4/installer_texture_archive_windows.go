@@ -24,7 +24,7 @@ func setupTextureTransfer(command, cache, archive string, emit func(installEvent
 	exporting := command == "export-textures"
 	if exporting {
 		if _, err := os.Stat(cache); errors.Is(err, os.ErrNotExist) {
-			return setupInputError{"cache", "This cache folder has no images yet. Choose a cache with upscaled textures."}
+			return setupInputError{"cache", "This cache folder has no texture files yet. Choose a cache with upscaled textures."}
 		}
 	}
 	unlock, err := installLock(cache)
@@ -41,7 +41,7 @@ func setupTextureTransfer(command, cache, archive string, emit func(installEvent
 	}()
 	progress := textureArchiveProgress{
 		checkSpace: func(target string, bytes uint64) error {
-			return checkVolumeSpace([]spaceRequest{{target, "the texture images", bytes}}, lookupSetupVolume)
+			return checkVolumeSpace([]spaceRequest{{target, "the texture files", bytes}}, lookupSetupVolume)
 		},
 		count: func(done, total int) {
 			emit(installEvent{Type: "count", Value: done, Total: total})
@@ -49,10 +49,10 @@ func setupTextureTransfer(command, cache, archive string, emit func(installEvent
 		publish: moveNewTextureArchive,
 	}
 	if exporting {
-		emit(installEvent{Type: "step", Text: "Exporting texture images"})
+		emit(installEvent{Type: "step", Text: "Exporting textures"})
 		err = exportTextureArchive(ctx, cache, archive, progress)
 	} else {
-		emit(installEvent{Type: "step", Text: "Importing texture images"})
+		emit(installEvent{Type: "step", Text: "Importing textures"})
 		err = importTextureArchive(ctx, cache, archive, progress)
 	}
 	if err != nil {

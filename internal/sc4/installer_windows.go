@@ -104,6 +104,7 @@ func fileExists(path string) bool {
 type setupOptions struct {
 	ui, skipIntro, drawStats, russian bool
 	russianSource                     string
+	keepUpscaledImages                bool
 	interfaceOptions                  uiExecutableOptions
 	world                             worldSelection
 	width, height                     int
@@ -166,6 +167,7 @@ func installerCommand(args []string, emit func(installEvent)) error {
 	archive := flags.String("archive", "", "portable texture archive")
 	ui := flags.Bool("ui", true, "upscale interface textures and apply UI fixes")
 	language := flags.String("language", "game", "game language (game or russian)")
+	keepUpscaledImages := flags.Bool("keep-upscaled-images", false, "keep the original upscaled images")
 	textureScale := flags.Int("texture-scale", 2, "texture and cursor scale (2 or 4)")
 	world := flags.Bool("world", true, "upscale world textures")
 	network := flags.Bool("network", true, "upscale roads and rail")
@@ -257,8 +259,9 @@ func installerCommand(args []string, emit func(installEvent)) error {
 		options := setupOptions{
 			ui: *ui, skipIntro: *skipIntro, drawStats: *drawStats, russian: *language == "russian",
 			width: width, height: height,
-			textureScale:     *textureScale,
-			interfaceOptions: uiExecutableOptions{hdCursors: *hdCursors, regionMap: *regionMap, loadingPreview: *loadingPreview},
+			textureScale:       *textureScale,
+			keepUpscaledImages: *keepUpscaledImages,
+			interfaceOptions:   uiExecutableOptions{hdCursors: *hdCursors, regionMap: *regionMap, loadingPreview: *loadingPreview},
 			world: worldSelection{
 				network: *world && *network,
 				terrain: *world && *terrain,
@@ -412,7 +415,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 		}
 		phase = 2
 		if options.world.any() {
-			if err := buildWorldWithProgress(ctx, setupWorldArgs(options.textureScale, game, cache, world), progress, options.world); err != nil {
+			if err := buildWorldWithProgress(ctx, setupWorldArgs(options, game, cache, world), progress, options.world); err != nil {
 				return err
 			}
 			packageDirs = append(packageDirs, filepath.Join(world, "Plugins"))
@@ -463,7 +466,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 				}
 			}
 		}
-		if err := os.WriteFile(filepath.Join(stage, installedCacheFile), []byte(cache), 0644); err != nil {
+		if err := writeSetupCacheSettings(stage, cache, options.keepUpscaledImages); err != nil {
 			return err
 		}
 		nextStage()
@@ -494,6 +497,7 @@ func installHD(ctx context.Context, game, cache string, options setupOptions, em
 func setupUIArgs(options setupOptions, game, cache, output string) []string {
 	args := []string{
 		fmt.Sprintf("-texture-scale=%d", options.textureScale),
+		fmt.Sprintf("-keep-upscaled-images=%t", options.keepUpscaledImages),
 		fmt.Sprintf("-cursor-scale=%d", options.textureScale),
 		fmt.Sprintf("-hd-cursors=%t", options.interfaceOptions.hdCursors),
 		fmt.Sprintf("-region-map-2x=%t", options.interfaceOptions.regionMap),
@@ -505,8 +509,9 @@ func setupUIArgs(options setupOptions, game, cache, output string) []string {
 	return append(args, game, cache, output)
 }
 
-func setupWorldArgs(scale int, game, cache, output string) []string {
-	return []string{fmt.Sprintf("-texture-scale=%d", scale), game, cache, output}
+func setupWorldArgs(options setupOptions, game, cache, output string) []string {
+	return []string{fmt.Sprintf("-texture-scale=%d", options.textureScale),
+		fmt.Sprintf("-keep-upscaled-images=%t", options.keepUpscaledImages), game, cache, output}
 }
 
 func installerBuildProgress(deps *setupDependencies, phase *int) buildProgress {

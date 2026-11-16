@@ -62,8 +62,8 @@ func cachedInference(ctx context.Context, cache string, config inferenceConfig, 
 			return nil, err
 		}
 		output, err = validate(output)
-		if err != nil {
-			return nil, err
+		if err != nil || !config.keepUpscaledImages {
+			return output, err
 		}
 		err = publishFile(path, func(w io.Writer) error {
 			_, err := io.Copy(w, contextReader{ctx, bytes.NewReader(output)})

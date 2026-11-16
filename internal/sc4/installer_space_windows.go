@@ -211,12 +211,13 @@ func checkSetupSpace(ctx context.Context, game, dependencies, cache string, opti
 			return err
 		}
 	}
-	if imageBytes := cacheBytes - interfaceCacheBytes; imageBytes > 0 {
+	if imageBytes := cacheBytes - interfaceCacheBytes; options.keepUpscaledImages && cacheBytes > 0 {
 		// Missing FSH may also need full-resolution inference output. Count
 		// existing PNGs against that estimate, not against the FSH we will write.
 		if options.textureScale == 2 {
 			imageBytes *= 3
 		}
+		imageBytes += interfaceCacheBytes
 		images, err := setupDirSize(ctx, filepath.Join(cache, inferenceCacheFolder), true)
 		if err != nil {
 			return fmt.Errorf("measure upscaled image cache: %w", err)

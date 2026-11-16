@@ -45,6 +45,11 @@
   "pausedText": "Resume whenever you’re ready. Setup will reuse the textures already saved.",
   "options": [
     {
+      "id": "keep-upscaled-images",
+      "label": "Keep original upscaled images for future rebuilds",
+      "default": false
+    },
+    {
       "id": "texture-scale",
       "label": "Texture scale",
       "default": "2",

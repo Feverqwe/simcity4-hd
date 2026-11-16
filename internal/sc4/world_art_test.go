@@ -49,7 +49,7 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				return encodeRGBA(pixels)
 			}
 			ctx := context.Background()
-			config := inferenceConfig{scale: 4, tile: 64, overlap: 16}
+			config := inferenceConfig{scale: 4, tile: 64, overlap: 16, keepUpscaledImages: true}
 			art := worldArtwork{ctx: ctx, scale: 2, infer: cachedInference(ctx, root, config, func(data []byte) ([]byte, error) {
 				calls++
 				return infer(data)
@@ -58,6 +58,37 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The default build retains FSHs. Exporting this cache should
+			// make another build at the same scale possible with no model.
+			compiled := t.TempDir()
+			config.keepUpscaledImages = false
+			plain, closePlain := worldInference(ctx, compiled, config)
+			defer closePlain()
+			plain.scale = 2
+			plain.infer = cachedInference(ctx, compiled, config, infer)
+			if _, err := plain.texture(plain.modelCache, stock, false); err != nil {
+				t.Fatal(err)
+			}
+			compiledArchive := filepath.Join(t.TempDir(), "compiled.zip")
+			if err := exportTextureArchive(ctx, compiled, compiledArchive, textureArchiveProgress{}); err != nil {
+				t.Fatal(err)
+			}
+			imported := t.TempDir()
+			if err := importTextureArchive(ctx, imported, compiledArchive, textureArchiveProgress{}); err != nil {
+				t.Fatal(err)
+			}
+			// Remove inference entirely. Passing via a PNG cache hit would
+			// hide an FSH export regression.
+			plain.cache, plain.infer = imported, nil
+			reused, err := plain.texture(plain.modelCache, stock, false)
+			if err != nil || !bytes.Equal(reused, x2) {
+				t.Fatalf("FSH-only archive could not rebuild the texture: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(imported, inferenceCacheFolder)); !os.IsNotExist(err) {
+				t.Fatalf("default build included raw inference images: %v", err)
+			}
+			config.keepUpscaledImages = true
+
 			// Compare with the x2 level encoded directly from the model's pixels.
 			stockPixels := decodeBC(stock[40:72], 8, 8, bc1)
 			input, err := encodeRGBA(stockPixels)

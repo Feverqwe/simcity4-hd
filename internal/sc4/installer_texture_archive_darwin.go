@@ -56,7 +56,7 @@ func transferMacTextures(ctx context.Context, command, cache, archive string, se
 	if exporting {
 		if _, err := os.Stat(cache); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				err = errors.New("This cache folder has no images yet. Choose a cache with upscaled textures.")
+				err = errors.New("This cache folder has no texture files yet. Choose a cache with upscaled textures.")
 			}
 			return macSetupInputError{"cache", err}
 		}
@@ -69,7 +69,7 @@ func transferMacTextures(ctx context.Context, command, cache, archive string, se
 
 	progress := textureArchiveProgress{
 		checkSpace: func(path string, needed uint64) error {
-			return checkMacFreeSpace(path, needed, "the texture images")
+			return checkMacFreeSpace(path, needed, "the texture files")
 		},
 		count: func(done, total int) {
 			send(macSetupEvent{Type: "count", Value: &done, Total: total})
@@ -77,10 +77,10 @@ func transferMacTextures(ctx context.Context, command, cache, archive string, se
 		publish: moveNewMacTextureArchive,
 	}
 	if exporting {
-		send(macSetupEvent{Type: "step", Text: "Exporting texture images"})
+		send(macSetupEvent{Type: "step", Text: "Exporting textures"})
 		err = exportTextureArchive(ctx, cache, archive, progress)
 	} else {
-		send(macSetupEvent{Type: "step", Text: "Importing texture images"})
+		send(macSetupEvent{Type: "step", Text: "Importing textures"})
 		err = importTextureArchive(ctx, cache, archive, progress)
 	}
 	if err != nil {

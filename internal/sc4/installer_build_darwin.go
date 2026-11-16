@@ -11,19 +11,20 @@ import (
 )
 
 type macSetupBuild struct {
-	Scale          int    `json:"scale"`
-	Language       string `json:"language"`
-	Interface      bool   `json:"interface"`
-	Cursors        bool   `json:"cursors"`
-	RegionMap      bool   `json:"regionMap"`
-	LoadingPreview bool   `json:"loadingPreview"`
-	RetinaText     bool   `json:"retinaText,omitempty"`
-	World          bool   `json:"world"`
-	Network        bool   `json:"network"`
-	Terrain        bool   `json:"terrain"`
-	Models         bool   `json:"models"`
-	SkipIntro      *bool  `json:"skipIntro,omitempty"`
-	DrawStats      bool   `json:"drawStats"`
+	Scale              int    `json:"scale"`
+	Language           string `json:"language"`
+	Interface          bool   `json:"interface"`
+	Cursors            bool   `json:"cursors"`
+	RegionMap          bool   `json:"regionMap"`
+	LoadingPreview     bool   `json:"loadingPreview"`
+	RetinaText         bool   `json:"retinaText,omitempty"`
+	World              bool   `json:"world"`
+	Network            bool   `json:"network"`
+	Terrain            bool   `json:"terrain"`
+	Models             bool   `json:"models"`
+	SkipIntro          *bool  `json:"skipIntro,omitempty"`
+	DrawStats          bool   `json:"drawStats"`
+	KeepUpscaledImages bool   `json:"keepUpscaledImages,omitempty"`
 }
 
 func (b *macSetupBuild) flags(flags *flag.FlagSet) {
@@ -40,6 +41,7 @@ func (b *macSetupBuild) flags(flags *flag.FlagSet) {
 	flags.BoolVar(&b.Models, "models", true, "upscale buildings, props and effects")
 	b.SkipIntro = new(bool)
 	flags.BoolVar(b.SkipIntro, "skip-intro", true, "skip the game intro")
+	flags.BoolVar(&b.KeepUpscaledImages, "keep-upscaled-images", false, "keep the original upscaled images")
 	flags.BoolVar(&b.DrawStats, "draw-stats", false, "show the game's FPS counter")
 }
 
@@ -185,6 +187,7 @@ func (s macSetupSources) settings() *macSetupSettings {
 			"retina-text": b.RetinaText,
 			"network":     b.Network, "terrain": b.Terrain, "models": b.Models,
 			"skip-intro": b.skipIntro(), "draw-stats": b.DrawStats,
+			"keep-upscaled-images": b.KeepUpscaledImages,
 		}
 		settings.Choices = map[string]string{"texture-scale": strconv.Itoa(b.Scale), "language": b.Language}
 	}
@@ -242,7 +245,8 @@ func prepareMacSetupBuild(ctx context.Context, stock, work string, sources macSe
 			send(macSetupEvent{Type: "count", Value: &done, Total: total})
 		},
 	}
-	common := []string{"-texture-scale", strconv.Itoa(b.Scale)}
+	common := []string{"-texture-scale", strconv.Itoa(b.Scale),
+		fmt.Sprintf("-keep-upscaled-images=%t", b.KeepUpscaledImages)}
 	if sources.needsInterfaceBuild() {
 		output := filepath.Join(work, "Interface")
 		args := append([]string{}, common...)

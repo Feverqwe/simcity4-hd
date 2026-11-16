@@ -64,9 +64,11 @@ func TestTextureArchiveRejectsInvalidEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	validName := textureArchiveRoot + inferenceCacheFolder + "/" + strings.Repeat("a", 64) + ".png"
+	fshName := textureArchiveRoot + filepath.ToSlash(modelCache("", 2)) + "/" + strings.Repeat("a", 64) + ".fsh"
 	for name, entries := range map[string][]string{
 		"path traversal": {validName, textureArchiveRoot + inferenceCacheFolder + "/../../escape.png"},
 		"duplicate":      {validName, validName},
+		"PNG as FSH":     {fshName},
 	} {
 		t.Run(name, func(t *testing.T) {
 			archive := filepath.Join(t.TempDir(), "bad.zip")

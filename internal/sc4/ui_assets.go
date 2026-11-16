@@ -205,6 +205,7 @@ func runUIAssets(name string, args []string) (result error) {
 			return worker.upscalePNG(png)
 		}
 	}
+	infer = cachedInference(ctx, flags.Arg(1), config, infer)
 	entries, err := build(stock, flags.Arg(1), 4, infer, buildProgress{})
 	if err != nil {
 		return err

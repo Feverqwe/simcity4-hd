@@ -27,6 +27,11 @@
   "displayResolution": { "id": "resolution", "fallback": "3840x2160" },
   "options": [
     {
+      "id": "keep-upscaled-images",
+      "label": "Keep original upscaled images for future rebuilds",
+      "default": false
+    },
+    {
       "id": "texture-scale",
       "label": "Texture scale",
       "default": "2",
