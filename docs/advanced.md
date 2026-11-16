@@ -7,13 +7,14 @@ The Windows builder creates the mod from your local game installation. You suppl
 ### Requirements
 
 - **SimCity 4 Deluxe on Steam**, build 4644414, with the original Windows executable version 1.1.641.0. The builder checks the executable fingerprint. The reference installation used the English locale.
-- **64-bit Python 3.12 for Windows** and an NVIDIA GPU that can run the model in bfloat16 through PyTorch CUDA.
-- Go for building the utility from source, and free disk space for the Python environment, texture cache, built packages, and a separate test profile.
+- To generate missing upscaled textures, use **64-bit Python 3.12 for Windows** and an NVIDIA GPU that supports bfloat16 through PyTorch CUDA. A build with all required cached textures can run without Python or CUDA.
+- Use the Go version required by [the module](../go.mod) when building the utility from source. Allow space for the texture cache, built packages and a separate test profile.
 - A renderer capable of native 3840 × 2160. For SCD3D11, download [v0.5.0](https://github.com/caspervg/scd3d11/releases/tag/v0.5.0).
 
 ### Set up Python on Windows
 
-In PowerShell, create a Python environment for texture upscaling. The builder can use it directly on Windows.
+For a build that needs to generate textures, create a Python environment in
+PowerShell. The builder can use it directly on Windows.
 
 ```powershell
 $venv = Join-Path $env:USERPROFILE 'sc4-hd-venv'
@@ -28,7 +29,10 @@ Download `IllustrationJaNai_V3detail.zip` and extract `4x_IllustrationJaNai_V3de
 
 ### Build UI and World on Windows
 
-From the repository root, run `go build -o simcity4-uhd-windows-amd64.exe .`. If you use a prebuilt builder, check that `ui -h` lists `-python` and `-weights`. In the same PowerShell session, go to the directory containing the builder and set the Windows paths below.
+Run `go build -o simcity4-uhd-windows-amd64.exe .` from the repository root.
+Set the paths below in the PowerShell session where you configured Python.
+For a cache-only build, set `$inference = @()` in place of the Python and
+weights arguments.
 
 ```powershell
 $builder = '.\simcity4-uhd-windows-amd64.exe'
@@ -42,7 +46,9 @@ $inference = @(
 )
 
 & $builder ui -texture-scale 4 @inference $game $cache $ui
+if ($LASTEXITCODE -ne 0) { throw 'Could not build the interface.' }
 & $builder world -texture-scale 4 @inference $game $cache $world
+if ($LASTEXITCODE -ne 0) { throw 'Could not build World textures.' }
 ```
 
 Run either command on its own or build both. For ×2 packages, use
@@ -58,10 +64,10 @@ using the installer guide, point `$builder` at the executable in `dist`.
 From the source checkout, unpack the translation into a new directory:
 
 ```powershell
-& $builder russian-pack unpack .\installer\resources\russian.sc4pack .\russian-source
+& $builder russian-pack unpack .\installer\resources\russian.sc4pack C:\SC4Test\Russian
 ```
 
-Add `-russian .\russian-source` to the `ui` command.
+Add `-russian C:\SC4Test\Russian` before the positional arguments to `ui`.
 Use the generated executable, `Plugins`, and `Fonts` together in the isolated
 game copy. Back up its original `Fonts` directory before copying the Cyrillic
 fonts. To return to the original language, restore the original fonts and switch
@@ -70,7 +76,9 @@ to a UI build made without `-russian`.
 ### Install in an isolated profile
 
 Create the parent directory first and choose new paths for the game copy and
-profile. The profile path must not contain spaces. This PowerShell example
+profile. Choose a profile path without spaces. Extract `SCD3D11.dll` and
+`SCD3D11.ini` from the renderer archive into the directory set in
+`$renderer`. This PowerShell example
 copies both builds and the stock regions. For a single build, list just its
 `Plugins` directory. For World on its own, skip replacing the game executable.
 
@@ -110,7 +118,7 @@ Steam installation with your regular profile.
 
 ## Test on macOS
 
-The experimental macOS build targets the English Steam release of SimCity 4
+The macOS build targets the English Steam release of SimCity 4
 Deluxe by Aspyr, version 1.2.1 (185949). It runs under Rosetta on Apple silicon.
 Use the original `.app` as the game path for `world` and `ui`. Those commands
 can also build the DATs on a separate machine using the shared texture cache.
@@ -119,9 +127,10 @@ generate missing textures with PyTorch on Metal. Use native arm64 Python
 with PyTorch, torchvision, NumPy, Pillow, safetensors, and spandrel, and
 the same HAT checkpoint as on Windows.
 
-On Mac, run `go build -o simcity4-uhd .` from the checkout. In a terminal,
-copy the original Steam app (`$stock`) to a new `.app` path (`$copy`) outside
-the original, then install the prepared builds into that copy:
+On Mac, run `go build -o simcity4-uhd .` from the checkout. Close the
+game. In an interactive terminal, set `stock` to the original Steam app,
+`copy` to a new `.app` path outside the original, and `ui` and `world`
+to the prepared build directories. Copy the app and install into the copy:
 
 ```sh
 test ! -e "$copy" && test ! -L "$copy" && ditto "$stock" "$copy" &&
@@ -129,7 +138,9 @@ test ! -e "$copy" && test ! -L "$copy" && ditto "$stock" "$copy" &&
 ```
 
 Use matching texture scales. For World only, omit `-ui "$ui"`. For Interface
-only, omit `-world "$world"`.
+only, omit `-world "$world"`. Keep stdin open until setup prints an
+`installed` event. An EOF on stdin pauses setup and emits `stopped`.
+
 For Russian, build with `CGO_ENABLED=1 go build -o simcity4-uhd .` and unpack
 the translation from the checkout with
 `./simcity4-uhd russian-pack unpack installer/resources/russian.sc4pack russian-source`.
@@ -142,13 +153,18 @@ to double the city loading preview when building the UI. Pass
 size. The macOS build uses Aspyr's OpenGL renderer.
 Aspyr may play its startup movies before applying the launch options.
 
-With Steam open, copy the original `Contents/GameData/Regions` directory
-into a separate profile without spaces in its path and create an empty
-`Plugins` folder alongside it. Use `./simcity4-uhd launch "$copy" "$profile"`
-to preview the launch parameters and add `-start` before the paths to launch.
-Use `-start -foreground` to keep the session attached and see the game's output.
-Fullscreen uses the display's backing resolution by default. Use
-`-resolution WIDTHxHEIGHT` to override it for a diagnostic launch.
+Copy the original `Contents/GameData/Regions` directory into a separate
+profile without spaces in its path and create an empty `Plugins` folder
+alongside it. Set `profile` to that directory and preview the launch:
+
+```sh
+./simcity4-uhd launch -resolution 2560x1440 "$copy" "$profile"
+```
+
+Open Steam and add `-start` before the paths to launch. With
+`-start -foreground`, the session stays attached and shows the game's
+output. Use `-saved-resolution` in place of `-resolution` to skip the
+resolution override.
 With the UHD interface enabled, choose the resolution and window mode in
 Graphics Options and select **Accept** to apply them in the current session.
 Borderless fullscreen uses the desktop resolution.
@@ -157,10 +173,12 @@ game scales the frame to fit the window at the selected render resolution.
 
 ## Restore the Windows Steam game
 
-Close the game. For a setup-managed installation, use **Remove mod** in
-the installer to restore the original executable, fonts and graphics settings
-affected by setup.
+Close the game. For a setup-managed installation, use **More actions →
+Remove mod** in setup.
 
-For a manual installation, verify the game files in Steam or restore the
-original executable and any fonts you replaced from your backups. Remove
-the mod DATs, launcher and renderer files you copied into the game folder.
+For the isolated installation above, return to the original Steam game and
+your regular profile. Keep any saves you want from the test profile before
+deleting the copy. If you installed files into the Steam game manually,
+restore the original executable and fonts from backups or verify the game
+files in Steam. Remove the mod DATs and renderer files you added and restore
+any renderer files you replaced.

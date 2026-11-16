@@ -9,7 +9,7 @@ A **SimCity 4 Deluxe** mod for playing your existing cities at 4K, with a larger
 | Platform | Required Steam edition | Display support |
 | --- | --- | --- |
 | [Windows x64](#install-on-windows) | Original SimCity 4 Deluxe 1.1.641.0 (build 4644414) | Direct3D 11 through SCD3D11. In-game display changes apply after a restart. |
-| [macOS on Apple silicon](#install-on-macos) (experimental) | Aspyr SimCity 4 Deluxe 1.2.1 (build 185949), running through Rosetta | Aspyr OpenGL, live resolution and window mode changes, resizable windows, and Retina text with the HD interface. |
+| [macOS on Apple silicon](#install-on-macos) | Aspyr SimCity 4 Deluxe 1.2.1 (build 185949), running through Rosetta | Aspyr OpenGL, live resolution and window mode changes, resizable windows, and Retina text with the HD interface. |
 
 With the UHD interface enabled, **Graphics Options** offers a choice of resolution and windowed, fullscreen, or borderless fullscreen mode. Borderless fullscreen uses the desktop resolution.
 
@@ -43,7 +43,7 @@ With the UHD interface enabled, **Graphics Options** offers a choice of resoluti
 
 - Install the enlarged interface, world textures, or both. Choose which world texture groups to build and keep playing with your existing Steam profile and saves.
 - Pause a texture build and resume from the cache, or retry a failed download during setup. Reuse finished textures when changing options or installing again, or export them as a ZIP. A complete cache for the selected options lets setup skip upscaling.
-- Launch through Steam from setup, choose a startup resolution, and optionally skip the intro. Setup checks for updates and shows build progress. On macOS, it can also enable the game's FPS counter. Reopen setup to change options or restore the original game while keeping the cache.
+- Launch through Steam from setup, choose a startup resolution, and optionally skip the intro. Setup checks for updates and shows build progress. Reopen setup to change options or restore the original game while keeping the cache.
 
 ## Install on Windows
 
@@ -75,7 +75,7 @@ Setup shows installation steps and errors below the progress bar. Session logs a
 
 Generating missing textures on the Mac uses Metal and requires macOS 14 or later. You can also import a texture archive.
 
-See the [macOS installer guide](installer/README.md#experimental-macos-setup) for texture sources, configuration, and removal.
+See the [macOS installer guide](installer/README.md#macos-setup) for texture sources, configuration, and removal.
 
 [Advanced setup](docs/advanced.md) covers building textures from source and testing in a separate profile.
 

@@ -1,8 +1,8 @@
 # Reusable Qt setup window
 
-Build this CMake project with a C++23 compiler and Qt 6.5 or later with Widgets. Pass the
-backend executable and the JSON product manifest to `Setup-UI` in that
-order. The backend can be implemented in Go or any language that can
+Build this project with CMake 3.21 or later, a C++23 compiler and Qt 6.5 or
+later with Widgets. Pass the backend executable and the JSON product manifest
+to `Setup-UI` in that order. The backend can be implemented in any language that can
 communicate over standard streams. See [the SimCity manifest](../setup.json)
 for an example. The manifest and backend should come from a trusted package.
 
