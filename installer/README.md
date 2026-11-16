@@ -32,6 +32,10 @@ For reuse in another product, see the [Qt frontend contract](qt/README.md).
 
 ## Experimental macOS setup
 
+GitHub releases include a ZIP for Apple silicon. To build it locally from
+the public checkout, install Go, CMake, Xcode Command Line Tools and Qt 6
+with `macdeployqt`, then run `./installer/package-macos.sh`.
+
 The macOS setup app patches the original Aspyr Steam app (version 1.2.1,
 build 185949). Choose Interface, World, or both. On Apple silicon with
 macOS 14 or later, setup downloads the upscaling tools as needed and builds
