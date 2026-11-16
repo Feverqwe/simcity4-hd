@@ -1,0 +1,3 @@
+package upscale
+
+const HatCheckpointSHA = "38c00c9ff871ae292617ae1127edc150f81c4e0f8f98685e48ff9c9cd87fba3b"

@@ -3,6 +3,14 @@ package sc4
 import (
 	"fmt"
 	"os"
+
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/advisors"
+	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/launch"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/russian"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/setup"
+	uibuild "github.com/Feverqwe/simcity4-hd/internal/sc4/ui"
+	worldbuild "github.com/Feverqwe/simcity4-hd/internal/sc4/world"
 )
 
 const usage = "Usage: simcity4-uhd <ui|world|russian-pack|advisors|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|launch> ..."
@@ -11,7 +19,7 @@ const usage = "Usage: simcity4-uhd <ui|world|russian-pack|advisors|verify|tutori
 func Run(args []string, version string) int {
 	if len(args) > 0 && args[0] == "setup" {
 		if len(args) == 2 && args[1] == "check-update" {
-			if err := checkSetupUpdate(version, os.Stdout); err != nil {
+			if err := setup.CheckUpdate(version, os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
@@ -34,33 +42,33 @@ func Run(args []string, version string) int {
 	var err error
 	switch args[0] {
 	case "ui":
-		err = runBuildUI(args[1:])
+		err = uibuild.Run(args[1:])
 	case "world":
-		err = runBuildWorld(args[1:])
+		err = worldbuild.Run(args[1:])
 	case "russian-pack":
-		err = runRussianPack(args[1:])
+		err = russian.Run(args[1:])
 	case "advisors":
-		err = runAdvisors(args[1:])
+		err = advisors.Run(args[1:])
 	case "verify":
-		err = verifyPackages(args[1:], os.Stdout)
+		err = gamefiles.VerifyPackages(args[1:], os.Stdout)
 	case "tutorial":
-		err = runTutorial(args[1:])
+		err = uibuild.RunTutorial(args[1:])
 	case "patch-ui-exe":
 		err = runUIExecutable(args[1:])
 	case "terrain-indexed":
-		err = runIndexedTerrain(args[1:])
+		err = worldbuild.RunIndexedTerrain(args[1:])
 	case "network-textures":
-		err = runNetworkTextures(args[1:])
+		err = worldbuild.RunNetworkTextures(args[1:])
 	case "model-textures":
-		err = runModelTextures(args[1:])
+		err = worldbuild.RunModelTextures(args[1:])
 	case "index-materials":
-		err = runMaterialIndex(args[1:])
+		err = worldbuild.RunMaterialIndex(args[1:])
 	case "catalog-sheets":
-		err = runCatalogSheets(args[1:])
+		err = uibuild.RunCatalogSheets(args[1:])
 	case "catalog-chrome", "mysim-portraits":
-		err = runUIAssets(args[0], args[1:])
+		err = uibuild.RunUIAssets(args[0], args[1:])
 	case "launch":
-		err = runLaunch(args[1:], os.Stdout)
+		err = launch.Run(args[1:], os.Stdout)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %q. Use --help for the command list.\n", args[0])
 		return 2
