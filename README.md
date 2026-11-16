@@ -30,6 +30,7 @@ Setup shows installation steps and errors below the progress bar. Session logs a
 
 ## Install on macOS
 
-The experimental macOS installer patches the existing **Aspyr Steam** installation of SimCity 4 Deluxe, version 1.2.1 (build 185949). Extract the macOS setup archive, close the game, and open **SimCity 4 UHD Setup**. After installation, launch through Steam to play with your usual profile.
+The experimental macOS installer patches the existing **Aspyr Steam** installation of SimCity 4 Deluxe, version 1.2.1 (build 185949). Download the [installer for Apple silicon](https://github.com/Feverqwe/simcity4-hd/releases/latest/download/SimCity4UHD-Setup-macos-arm64.zip), extract it, close the game, and open **SimCity 4 UHD Setup**. After installation, launch through Steam to play with your usual profile.
 
 See the [macOS installer guide](installer/README.md#experimental-macos-setup) for texture sources, configuration, and removal. [Advanced setup](docs/advanced.md) covers building textures from source and testing in a separate profile.
+[Discord](https://discord.gg/PHmyWuBHj)
