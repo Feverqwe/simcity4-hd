@@ -2,32 +2,17 @@ package sc4
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-type rendererFiles []string
-
-func (r *rendererFiles) String() string { return strings.Join(*r, ", ") }
-
-func (r *rendererFiles) Set(path string) error {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".dll", ".ini":
-		*r = append(*r, path)
-		return nil
-	default:
-		return errors.New("renderer file must be a DLL or INI")
-	}
-}
-
 func packagePaths(inputs []string) ([]string, error) {
 	var packages []string
-	seen := make(map[string]bool)
+	seen := make(map[string][]os.FileInfo)
 	for _, input := range inputs {
 		info, err := os.Stat(input)
 		if err != nil {
@@ -61,9 +46,16 @@ func packagePaths(inputs []string) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
+			info, err := os.Stat(absolute)
+			if err != nil {
+				return nil, err
+			}
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("%s is not a regular file", path)
+			}
 			key := strings.ToLower(absolute)
-			if !seen[key] {
-				seen[key] = true
+			if !slices.ContainsFunc(seen[key], func(previous os.FileInfo) bool { return os.SameFile(info, previous) }) {
+				seen[key] = append(seen[key], info)
 				packages = append(packages, absolute)
 			}
 		}
@@ -93,127 +85,4 @@ func copyRegular(source, destination string) error {
 	}
 	_, copyErr := io.Copy(output, input)
 	return errors.Join(copyErr, output.Close())
-}
-
-func copyRegions(source, destination string) error {
-	info, err := os.Lstat(source)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a Regions directory", source)
-	}
-	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(destination, relative)
-		if entry.IsDir() {
-			return os.Mkdir(target, 0755)
-		}
-		return copyRegular(path, target)
-	})
-}
-
-func stageProfile(template, destination string, packages, renderer []string, diagnostics io.Writer) error {
-	template, err := filepath.Abs(template)
-	if err != nil {
-		return err
-	}
-	template, err = filepath.EvalSymlinks(template)
-	if err != nil {
-		return err
-	}
-	destination, err = filepath.Abs(destination)
-	if err != nil {
-		return err
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(destination))
-	if err != nil {
-		return err
-	}
-	destination = filepath.Join(parent, filepath.Base(destination))
-	if relative, err := filepath.Rel(template, destination); err == nil &&
-		relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return errors.New("stage the new profile outside its template")
-	}
-	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("%s already exists", destination)
-	}
-
-	names := make(map[string]bool)
-	allFiles := append(append([]string(nil), packages...), renderer...)
-	for _, path := range allFiles {
-		name := strings.ToLower(filepath.Base(path))
-		if names[name] {
-			return fmt.Errorf("duplicate Windows plugin filename: %s", name)
-		}
-		names[name] = true
-	}
-	stage, err := os.MkdirTemp(parent, ".sc4-profile-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
-	if err := copyRegions(filepath.Join(template, "Regions"), filepath.Join(stage, "Regions")); err != nil {
-		return err
-	}
-	const configName = "SimCity 4.cfg"
-	if err := copyRegular(filepath.Join(template, configName), filepath.Join(stage, configName)); err != nil &&
-		!errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	plugins := filepath.Join(stage, "Plugins")
-	if err := os.Mkdir(plugins, 0755); err != nil {
-		return err
-	}
-	var copiedPackages []string
-	for i, path := range allFiles {
-		target := filepath.Join(plugins, filepath.Base(path))
-		if err := copyRegular(path, target); err != nil {
-			return err
-		}
-		if i < len(packages) {
-			copiedPackages = append(copiedPackages, target)
-		}
-	}
-	if err := verifyPackages(copiedPackages, diagnostics); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("%s already exists", destination)
-	}
-	return os.Rename(stage, destination)
-}
-
-func runStageProfile(args []string, output io.Writer) error {
-	var renderer rendererFiles
-	flags := flag.NewFlagSet("stage-profile", flag.ContinueOnError)
-	flags.SetOutput(output)
-	flags.Var(&renderer, "renderer", "local renderer DLL or INI to copy (repeatable)")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() < 3 {
-		return errors.New("usage: simcity4-uhd stage-profile [-renderer FILE] TEMPLATE OUTPUT PACKAGE_OR_DIRECTORY ...")
-	}
-	packages, err := packagePaths(flags.Args()[2:])
-	if err != nil {
-		return err
-	}
-	if err := stageProfile(flags.Arg(0), flags.Arg(1), packages, renderer, output); err != nil {
-		return err
-	}
-	fmt.Fprintf(output, "Staged isolated profile: %s\n", flags.Arg(1))
-	return nil
 }

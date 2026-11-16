@@ -70,26 +70,38 @@ to a UI build made without `-russian`.
 ### Install in an isolated profile
 
 Create the parent directory first and choose new paths for the game copy and
-profile. The profile path must not contain spaces. This example stages both
-builds and copies the stock regions. For a single build, pass just its
+profile. The profile path must not contain spaces. This PowerShell example
+copies both builds and the stock regions. For a single build, list just its
 `Plugins` directory. For World on its own, skip replacing the game executable.
 
 ```powershell
 $testGame = 'C:\SC4Test\Game'
 $profile = 'C:\SC4Test\Profile'
 $renderer = 'C:\SC4Test\Renderer'
+$template = $game
 
 foreach ($path in @($testGame, $profile)) {
     if (Test-Path -LiteralPath $path) { throw "Choose a new directory: $path" }
 }
+$packages = @(Get-ChildItem -LiteralPath @("$ui\Plugins", "$world\Plugins") -Filter '*.dat' -File -ErrorAction Stop)
+if ($packages.Count -eq 0) { throw 'No DAT packages found.' }
+if ($packages | Group-Object Name | Where-Object Count -gt 1) { throw 'Duplicate DAT filenames.' }
+$datPaths = @($packages.FullName)
+& $builder verify @datPaths
+if ($LASTEXITCODE -ne 0) { throw 'Could not verify the DAT packages.' }
 Copy-Item -LiteralPath $game -Destination $testGame -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath "$ui\SimCity4-hd.exe" -Destination "$testGame\Apps\SimCity 4.exe" -Force -ErrorAction Stop
-& $builder stage-profile -renderer "$renderer\SCD3D11.dll" -renderer "$renderer\SCD3D11.ini" `
-    $game $profile "$ui\Plugins" "$world\Plugins"
-if ($LASTEXITCODE -ne 0) { throw 'Could not stage the test profile.' }
+New-Item -ItemType Directory -Path "$profile\Plugins" -Force -ErrorAction Stop | Out-Null
+Copy-Item -LiteralPath "$template\Regions" -Destination $profile -Recurse -ErrorAction Stop
+if (Test-Path -LiteralPath "$template\SimCity 4.cfg") {
+    Copy-Item -LiteralPath "$template\SimCity 4.cfg" -Destination $profile -ErrorAction Stop
+}
+Copy-Item -LiteralPath $datPaths -Destination "$profile\Plugins" -ErrorAction Stop
+Copy-Item -LiteralPath @("$renderer\SCD3D11.dll", "$renderer\SCD3D11.ini") `
+    -Destination "$profile\Plugins" -ErrorAction Stop
 ```
 
-To use an existing region, substitute a profile template containing its `Regions` folder for the first argument to `stage-profile`.
+To use an existing region, set `$template` to the profile that contains its `Regions` folder.
 
 Preview the launch arguments with `& $builder launch $testGame $profile`.
 With Steam open, use `& $builder launch -start $testGame $profile` to start
@@ -107,19 +119,22 @@ generate missing textures with PyTorch on Metal. Use native arm64 Python
 with PyTorch, torchvision, NumPy, Pillow, safetensors, and spandrel, and
 the same HAT checkpoint as on Windows.
 
-On Mac, run `go build -o simcity4-uhd .` from the checkout and stage a separate bundle. To use UHD
-world textures with the original interface, run
-`./simcity4-uhd setup stage-world "$stock" "$world" "$copy"`.
-To include the enlarged interface, use
-`./simcity4-uhd setup stage "$stock" "$ui" "$copy" "$world"`. Omit `"$world"`
-for an interface-only build.
-Use a fresh `.app` path for the copy and matching texture scales for UI and World.
+On Mac, run `go build -o simcity4-uhd .` from the checkout. In a terminal,
+copy the original Steam app (`$stock`) to a new `.app` path (`$copy`) outside
+the original, then install the prepared builds into that copy:
+
+```sh
+test ! -e "$copy" && test ! -L "$copy" && ditto "$stock" "$copy" &&
+    ./simcity4-uhd setup install -game "$copy" -ui "$ui" -world "$world"
+```
+
+Use matching texture scales. For World only, omit `-ui "$ui"`. For Interface
+only, omit `-world "$world"`.
 For Russian, build with `CGO_ENABLED=1 go build -o simcity4-uhd .` and unpack
 the translation from the checkout with
 `./simcity4-uhd russian-pack unpack installer/resources/russian.sc4pack russian-source`.
-Pass `-russian russian-source` when building the UI. Staging installs the
-matching fonts into the new bundle. Stage a separate copy with the default UI
-build to play in English.
+Pass `-russian russian-source` when building the UI. Setup installs the
+matching fonts into the copy. Use the default UI build to play in English.
 
 Pass `-region-map-2x` to double the region map and `-loading-preview-2x`
 to double the city loading preview when building the UI. Pass
@@ -132,7 +147,6 @@ into a separate profile without spaces in its path and create an empty
 `Plugins` folder alongside it. Use `./simcity4-uhd launch "$copy" "$profile"`
 to preview the launch parameters and add `-start` before the paths to launch.
 Use `-start -foreground` to keep the session attached and see the game's output.
-Launch the staged copy through this command to use the separate profile.
 Fullscreen uses the display's backing resolution by default. Use
 `-resolution WIDTHxHEIGHT` to override it for a diagnostic launch.
 With the UHD interface enabled, choose the resolution and window mode in

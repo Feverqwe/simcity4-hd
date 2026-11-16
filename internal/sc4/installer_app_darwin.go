@@ -110,24 +110,13 @@ func runMacSetup(args []string) int {
 		return fail("game", err)
 	}
 	if args[0] == "inspect" {
-		if _, err := os.Lstat(macSetupTransactionDir(bundle)); !errors.Is(err, os.ErrNotExist) {
-			unlock, err := lockMacSetup(bundle)
-			if err != nil {
-				return fail("", err)
-			}
-			defer unlock()
-			if err := ensureMacSetupGameClosed(); err != nil {
-				return fail("", err)
-			}
-			if err := validateMacSetupDirectories(bundle); err != nil {
-				return fail("", err)
-			}
-			if err := recoverMacSetup(bundle); err != nil {
-				return fail("", err)
-			}
-		}
 		if detected {
 			send(macSetupEvent{Type: "field", Field: "game", Path: game})
+		}
+		if _, err := os.Lstat(macSetupTransactionDir(bundle)); err == nil {
+			return fail("", errors.New("A previous setup operation was interrupted. Close the game and click Install to restore the previous state before continuing."))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fail("", err)
 		}
 		if current, err := readMacSetupReceipt(bundle); err == nil {
 			send(macSetupEvent{Type: "field", Field: "ui", Path: availableMacPreparedUI(bundle, current.UI)})

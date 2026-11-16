@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const usage = "Usage: simcity4-uhd <ui|world|russian-pack|advisors|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|stage-profile|launch> ..."
+const usage = "Usage: simcity4-uhd <ui|world|russian-pack|advisors|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|launch> ..."
 
 // Run dispatches the command line and returns the process exit code.
 func Run(args []string, version string) int {
@@ -61,8 +61,6 @@ func Run(args []string, version string) int {
 		err = runUIAssets(args[0], args[1:])
 	case "launch":
 		err = runLaunch(args[1:], os.Stdout)
-	case "stage-profile":
-		err = runStageProfile(args[1:], os.Stdout)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %q. Use --help for the command list.\n", args[0])
 		return 2

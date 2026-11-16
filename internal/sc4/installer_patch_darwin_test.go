@@ -4,8 +4,24 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestMacSetupRejectsTruncatedExecutable(t *testing.T) {
+	root := t.TempDir()
+	original := filepath.Join(root, "original")
+	if err := os.WriteFile(original, []byte("truncated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, macGameExecutable), []byte("longer prepared build"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := macSetupExecutable(original, root, []string{"city-hud-x2.dat"}, 0, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "expected the original Steam Aspyr") {
+		t.Fatalf("expected a diagnostic for the original executable, got %v", err)
+	}
+}
 
 func TestMacSetupRestoresFilesAfterSigningFailure(t *testing.T) {
 	root := t.TempDir()

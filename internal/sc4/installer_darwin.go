@@ -18,92 +18,20 @@ import (
 var macWorldScale = regexp.MustCompile(`-x([24])(?:-[0-9]+)?\.dat$`)
 
 func runInstaller(args []string) int {
-	var err error
-	var output string
-	switch {
-	case len(args) > 0 && slices.Contains([]string{"inspect", "install", "configure", "remove", "import-textures", "export-textures"}, args[0]):
+	if len(args) != 0 && slices.Contains([]string{"inspect", "install", "configure", "remove", "import-textures", "export-textures"}, args[0]) {
 		return runMacSetup(args)
-	case len(args) >= 4 && len(args) <= 5 && args[0] == "stage":
-		output = args[3]
-		var world macWorldPlan
-		if len(args) == 5 {
-			world.active, err = preparedMacPackages(&args[4])
-		}
-		if err == nil {
-			err = stageMacGame(context.Background(), args[1], args[2], output, world, os.Stdout)
-		}
-	case len(args) == 4 && args[0] == "stage-world":
-		output = args[3]
-		var world macWorldPlan
-		world.active, err = preparedMacPackages(&args[2])
-		if err == nil {
-			err = stageMacGame(context.Background(), args[1], "", output, world, os.Stdout)
-		}
-	default:
-		fmt.Fprintln(os.Stderr, "usage: simcity4-uhd setup stage STOCK.app UI_BUILD NEW_COPY.app [WORLD_BUILD]")
-		fmt.Fprintln(os.Stderr, "       simcity4-uhd setup stage-world STOCK.app WORLD_BUILD NEW_COPY.app")
-		return 2
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	fmt.Println(output)
-	return 0
+	fmt.Fprintln(os.Stderr, "usage: simcity4-uhd setup <inspect|install|configure|remove|import-textures|export-textures|check-update> ...")
+	return 2
 }
 
-func stageMacGame(ctx context.Context, stock, ui, output string, world macWorldPlan, diagnostics io.Writer) error {
-	_, mac, err := gameDataDirectory(stock)
-	if err != nil {
-		return err
-	}
-	if !mac || filepath.Ext(output) != ".app" {
-		return errors.New("select the original macOS game bundle and a new .app destination")
-	}
-	lock, err := os.OpenFile(output+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(lock.Name())
-	if err := lock.Close(); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(output); err == nil {
-		return fmt.Errorf("%s already exists", output)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	stage, err := os.MkdirTemp(filepath.Dir(output), ".sc4-uhd-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
-	bundle := filepath.Join(stage, filepath.Base(output))
-	if err := runMacSetupTool(ctx, "/usr/bin/ditto", stock, bundle); err != nil {
-		return err
-	}
-	if err := prepareMacGame(ctx, stock, gameExecutablePath(stock, true), ui, bundle, stage, world, nil, diagnostics); err != nil {
-		return err
-	}
-	if err := signMacSetupBundle(ctx, bundle); err != nil {
-		return err
-	}
-	return os.Rename(bundle, output)
-}
-
-// prepareMacGame writes the managed files into a staging tree. The standalone
-// stage command supplies a full copy, while the installer supplies an empty tree.
 func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage string, world macWorldPlan, sources *macSetupSources, diagnostics io.Writer) error {
 	gameData, _, err := gameDataDirectory(stock)
 	if err != nil {
 		return err
 	}
-	var uiPackages []string
-	var reusedUI macInstalledInterface
-	if sources != nil {
-		reusedUI = sources.reusedUI
-		uiPackages = reusedUI.packages
-	}
+	reusedUI := sources.reusedUI
+	uiPackages := reusedUI.packages
 	if ui != "" {
 		uiPackages, err = packagePaths([]string{filepath.Join(ui, "Plugins")})
 		if err != nil {
@@ -114,14 +42,10 @@ func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage s
 	if err != nil {
 		return err
 	}
-	var installed *macSetupBuild
-	if sources != nil && sources.Build != nil {
-		build := *sources.Build
-		installed = &build
-	}
+	installed := *sources.Build
 	var patched []byte
 	if ui != "" {
-		patched, err = macSetupExecutable(originalExe, ui, uiPackages, worldScale, installed, sources)
+		patched, err = macSetupExecutable(originalExe, ui, uiPackages, worldScale, &installed, sources)
 	} else {
 		var original []byte
 		original, err = os.ReadFile(originalExe)
@@ -143,19 +67,17 @@ func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage s
 		return err
 	}
 	var inactiveCursor []string
-	if installed != nil {
-		if !installed.Cursors {
-			uiPackages = slices.DeleteFunc(uiPackages, func(path string) bool {
-				if !macCursorPackage(path) {
-					return false
-				}
-				inactiveCursor = append(inactiveCursor, path)
-				return true
-			})
-		}
-		if err := patchMachOLaunchSettings(patched, installed.skipIntro(), installed.DrawStats); err != nil {
-			return err
-		}
+	if !installed.Cursors {
+		uiPackages = slices.DeleteFunc(uiPackages, func(path string) bool {
+			if !macCursorPackage(path) {
+				return false
+			}
+			inactiveCursor = append(inactiveCursor, path)
+			return true
+		})
+	}
+	if err := patchMachOLaunchSettings(patched, installed.skipIntro(), installed.DrawStats); err != nil {
+		return err
 	}
 	if len(uiPackages) != 0 {
 		if err := refreshMacKeyboardHelp(ctx, gameData, stage, uiPackages); err != nil {
@@ -239,12 +161,10 @@ func prepareMacGame(ctx context.Context, stock, originalExe, ui, bundle, stage s
 	if err := runMacSetupTool(ctx, "/usr/bin/codesign", "--force", "--sign", "-", executable); err != nil {
 		return err
 	}
-	if sources != nil {
-		receipt := *sources
-		receipt.Build = installed
-		if err := writeMacSetupReceipt(bundle, receipt, worldPackages); err != nil {
-			return err
-		}
+	receipt := *sources
+	receipt.Build = &installed
+	if err := writeMacSetupReceipt(bundle, receipt, worldPackages); err != nil {
+		return err
 	}
 	return nil
 }
@@ -338,7 +258,9 @@ func macSetupExecutable(originalExe, ui string, packages []string, worldScale in
 	}
 	if len(patched) > len(original) {
 		hasRedirect := func(site int) bool {
-			return !bytes.Equal(patched[site:site+5], original[site:site+5])
+			// The patcher reports an unsupported executable even if it is too
+			// short to read this call site.
+			return site+5 <= len(original) && !bytes.Equal(patched[site:site+5], original[site:site+5])
 		}
 		options := uiExecutableOptions{
 			hdCursors:         hasRedirect(macCursorDirectorySite),
