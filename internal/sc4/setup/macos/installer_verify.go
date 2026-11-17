@@ -35,6 +35,9 @@ func checkManagedMacBundle(ctx context.Context, bundle string) (macSetupRecord, 
 	if ctx.Err() != nil {
 		return receipt, ctx.Err()
 	}
+	if !canSignMacApp {
+		return receipt, err
+	}
 	if err != nil {
 		return receipt, fmt.Errorf("The patched game has changed since setup installed it. The Steam files and original backup were left in place: %w", err)
 	}

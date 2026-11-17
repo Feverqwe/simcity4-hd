@@ -987,7 +987,6 @@ private:
     QLineEdit *addPath(QFormLayout *layout, const QJsonObject &info, const QString &value) {
         const auto label = info.value("label").toString();
         const auto title = info.value("browse").toString();
-        const auto filter = info.value("fileFilter").toString();
         const bool inspectOnChange = info.value("inspectOnChange").toBool();
         auto *edit = new QLineEdit(value);
         edit->setAccessibleName(QString(label).remove('&'));
@@ -1003,24 +1002,14 @@ private:
         auto *caption = new QLabel(label);
         caption->setBuddy(edit);
         layout->addRow(caption, row);
-        const auto choose = [this, edit, title, inspectOnChange](const QString &fileFilter) {
-            const auto path = fileFilter.isEmpty()
-                ? QFileDialog::getExistingDirectory(this, title, edit->text())
-                : QFileDialog::getOpenFileName(this, title, edit->text(), fileFilter);
+        connect(button, &QPushButton::clicked, this, [this, edit, title, inspectOnChange] {
+            const auto path = QFileDialog::getExistingDirectory(this, title, edit->text());
             if (path.isEmpty())
                 return;
             edit->setText(QDir::toNativeSeparators(path));
             if (inspectOnChange)
                 inspectSelection();
-        };
-        if (filter.isEmpty()) {
-            connect(button, &QPushButton::clicked, this, [choose] { choose({}); });
-        } else {
-            auto *menu = new QMenu(button);
-            menu->addAction(tr("Choose folder…"), this, [choose] { choose({}); });
-            menu->addAction(tr("Choose file…"), this, [choose, filter] { choose(filter); });
-            button->setMenu(menu);
-        }
+        });
         if (inspectOnChange)
             connect(edit, &QLineEdit::editingFinished, this, [this] {
                 if (inspectionOutdated())

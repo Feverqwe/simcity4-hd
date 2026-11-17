@@ -25,7 +25,7 @@ func installedMacResolution() string { return "" }
 func publishMacResolution(_ int, publish func() error) error { return publish() }
 
 func verifyMacSetupSignature(context.Context, string) error {
-	return errors.New("Use SimCity 4 UHD Setup on your Mac to verify the signed Aspyr app.")
+	return setup.FieldError("game", errors.New("This Aspyr app is signed. Open it in SimCity 4 UHD Setup on your Mac to make changes."))
 }
 
 func finalizeMacSetupBundle(_ context.Context, bundle string) error {
@@ -40,7 +40,7 @@ func finalizeMacSetupBundle(_ context.Context, bundle string) error {
 	if hash != receipt.ExecutableSHA256 {
 		return errors.New("The applied executable differs from the staged executable.")
 	}
-	return checkStockMacSetup(filepath.Join(macSetupBackup(bundle), macSetupOriginalFiles))
+	return checkStockMacSetup(macSetupBackup(bundle))
 }
 
 func copyMacSetupPaths(ctx context.Context, source, destination string, paths []string) error {

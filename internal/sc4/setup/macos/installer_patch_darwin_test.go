@@ -52,14 +52,14 @@ func TestMacSetupRestoresFilesAfterSigningFailure(t *testing.T) {
 	}
 	write(bundle, executable, "original executable")
 	write(bundle, signature, "original signature")
+	write(bundle, "Contents/Resources/untouched.txt", "untouched")
 	write(bundle, "Contents/GameData/Plugins/untouched.dat", "untouched")
 	write(staged, executable, "patched executable")
 	write(staged, receipt, "mod receipt")
-	stagedBackup := filepath.Join(work, "original")
-	write(stagedBackup, executable, "original executable")
+	write(macSetupBackup(staged), executable, "original executable")
 	signingFailure := errors.New("signing failed")
 
-	err := applyMacSetupFiles(bundle, work, staged, stagedBackup, true, func() error {
+	err := applyMacSetupFiles(bundle, work, staged, true, func() error {
 		read(filepath.Join(bundle, executable), "patched executable")
 		read(filepath.Join(bundle, receipt), "mod receipt")
 		read(filepath.Join(macSetupBackup(bundle), executable), "original executable")

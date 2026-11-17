@@ -44,17 +44,15 @@ preselects ready-to-use textures.
 ## macOS setup
 
 You can run Setup on either operating system with a copy of the supported
-Steam game for the other platform. Select the game folder, Aspyr `.app`,
-or game executable in **Advanced options** and click **Install**. The computer running
+Steam game for the other platform. Select the game folder or Aspyr `.app`
+in **Advanced options** and click **Install**. The computer running
 Setup supplies the GPU for any missing textures.
 Use **Export textures** after installation to take the completed textures
 to the other computer for future changes.
 
-After installing the Aspyr mod on Windows, copy the patched `.app` and its
-adjacent `.sc4-uhd-original` backup folder to the same location on your Mac.
+After installing the Aspyr mod on Windows, copy the patched `.app` to your Mac.
 Select the patched game in macOS Setup, click **Configure**, then click
-**Apply changes** to sign the app with its existing settings. Keep the
-backup next to the app for future configuration or removal.
+**Apply changes** to sign the app with its existing settings.
 
 After installing for the Windows edition on a Mac, use the patched game
 folder on Windows. **Automatic** runs the Windows game at the primary
@@ -81,5 +79,5 @@ Setup keeps its session logs in `~/Library/Logs/SimCity4HD`.
 Close the game and wait for any Steam updates to finish before applying
 changes. After setup, launch the game through Steam with your usual profile.
 Reopen setup to configure the mod or use **More actions → Remove mod** to
-restore the original game files. Keep the setup backup next to the game
-until you remove the mod.
+restore the original game files. Setup saves the original files it replaces
+inside the Aspyr app.

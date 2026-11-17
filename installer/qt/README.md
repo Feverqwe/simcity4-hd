@@ -8,7 +8,6 @@ for an example. The manifest and backend should come from a trusted package.
 
 The manifest needs a `product` display name. Optional `paths` describe
 directory inputs with an `id`, a `label`, and a `browse` title.
-Set `fileFilter` to also offer file selection with a Qt file filter.
 Set `inspectOnChange` on the product directory to inspect a new selection.
 A `default` may start with an environment variable placeholder such as
 `${LOCALAPPDATA}`. Packaged setup supplies `${SETUP_EXE_DIR}` as the

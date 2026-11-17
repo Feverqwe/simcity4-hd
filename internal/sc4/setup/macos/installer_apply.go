@@ -84,9 +84,6 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 		if err != nil {
 			return err
 		}
-		if !canSignMacApp {
-			sources.PendingResolution = command.Resolution
-		}
 	}
 	stage, err := prepareMacSetupWork(bundle)
 	if err != nil {
@@ -108,7 +105,7 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := applyMacSetupFiles(bundle, stage, staged, "", true, func() error {
+		if err := applyMacSetupFiles(bundle, stage, staged, true, func() error {
 			return checkStockMacSetup(bundle)
 		}); err != nil {
 			return err
@@ -121,7 +118,8 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 	if action == "configure" {
 		installed = bundle
 		var err error
-		if current.NeedsSigning && sources.resolution == 0 {
+		if current.NeedsSigning && command.Resolution == "" {
+			command.Resolution = current.PendingResolution
 			sources.resolution, err = parseMacSetupResolution(current.PendingResolution)
 			if err != nil {
 				return setup.FieldError("resolution", err)
@@ -138,6 +136,9 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 			sources.Build.Terrain = current.Build.Terrain
 			sources.Build.Models = current.Build.Models
 		}
+	}
+	if !canSignMacApp {
+		sources.PendingResolution = command.Resolution
 	}
 	if !sources.Build.Interface {
 		sources.Build.RetinaText = false
@@ -190,11 +191,8 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 			if err := prepareMacGame(ctx, bundle, originalExe, prepared.UI, staged, stage, prepared.world, &sources, os.Stderr, macSetupSigner()); err != nil {
 				return nil, err
 			}
-			var stagedBackup string
-			if original != filepath.Join(backup, macSetupOriginalFiles) {
-				stagedBackup = filepath.Join(stage, "original")
-				saved := filepath.Join(stagedBackup, macSetupOriginalFiles)
-				if err := copyMacSetupPaths(ctx, original, saved, macSetupOriginalPaths()); err != nil {
+			if action == "install" {
+				if err := copyMacSetupPaths(ctx, original, macSetupBackup(staged), macSetupOriginalPaths()); err != nil {
 					return nil, err
 				}
 			}
@@ -210,7 +208,7 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 			}
 			return func(applyCtx context.Context) error {
 				return publishMacResolution(sources.resolution, func() error {
-					return applyMacSetupFiles(bundle, stage, staged, stagedBackup, stagedBackup != "", func() error {
+					return applyMacSetupFiles(bundle, stage, staged, action == "install", func() error {
 						return finalizeMacSetupBundle(applyCtx, bundle)
 					})
 				})
@@ -222,8 +220,8 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 	}
 	if !canSignMacApp {
 		send(setup.Event{Type: "handoff", Path: parent, Text: fmt.Sprintf(
-			"Copy %q and its backup %q to the same folder on your Mac. Open the app in SimCity 4 UHD Setup, click Configure, then Apply changes to sign the game.",
-			filepath.Base(bundle), filepath.Base(backup),
+			"Copy %q to your Mac. Open the app in SimCity 4 UHD Setup, click Configure, then Apply changes to sign the game.",
+			filepath.Base(bundle),
 		)})
 		return nil
 	}
@@ -232,7 +230,7 @@ func changeMacInstallation(ctx context.Context, command setup.Command, send func
 }
 
 func ResolveInstallCache(cache, installed, bundle string) (string, error) {
-	return setup.ResolveCache(cache, installed, bundle, macSetupBackup(bundle), macSetupWork(bundle), macSetupTransactionDir(bundle))
+	return setup.ResolveCache(cache, installed, bundle, macSetupWork(bundle), macSetupTransactionDir(bundle))
 }
 
 func checkMacInstallTarget(bundle string) error {
@@ -241,13 +239,7 @@ func checkMacInstallTarget(bundle string) error {
 			if err != nil {
 				return err
 			}
-			if !canSignMacApp {
-				return fmt.Errorf("An existing macOS installation or backup was found at %s. Open the game in SimCity 4 UHD Setup on your Mac.", path)
-			}
-			if path == macSetupBackup(bundle) {
-				return fmt.Errorf("A setup backup already exists at %s. Use Configure or Remove for a managed installation.", path)
-			}
-			return fmt.Errorf("An existing mod path needs to be removed before installing: %s", path)
+			return fmt.Errorf("Mod files already exist at %s. Select a clean Steam installation.", path)
 		}
 	}
 	return checkStockMacSetup(bundle)

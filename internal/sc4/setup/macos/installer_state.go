@@ -74,10 +74,6 @@ func macModPlugins(bundle string) string {
 	return filepath.Join(bundle, "Contents", "GameData", "Plugins", "SimCity4HD")
 }
 
-func macSetupBackup(bundle string) string {
-	return filepath.Join(filepath.Dir(bundle), "."+filepath.Base(bundle)+".sc4-uhd-original")
-}
-
 func readMacSetupReceipt(bundle string) (record macSetupRecord, err error) {
 	data, err := os.ReadFile(macSetupReceiptPath(bundle))
 	if err != nil {

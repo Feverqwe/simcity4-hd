@@ -37,7 +37,7 @@ func copyMacSetupPaths(ctx context.Context, source, destination string, paths []
 }
 
 func lockMacSetup(bundle string) (func(), error) {
-	path := macSetupBackup(bundle) + ".patch-lock"
+	path := macSetupSidecar(bundle, ".patch-lock")
 	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
 	if err != nil {
 		return nil, err

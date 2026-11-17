@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	macSetupLauncher      = "Contents/MacOS/Sim City 4 Deluxe Edition"
-	macSetupSteamLibrary  = "Contents/MacOS/libsteam_api.dylib"
-	macSetupSignature     = "Contents/_CodeSignature"
-	macSetupOriginalFiles = "files"
+	macSetupLauncher     = "Contents/MacOS/Sim City 4 Deluxe Edition"
+	macSetupSteamLibrary = "Contents/MacOS/libsteam_api.dylib"
+	macSetupSignature    = "Contents/_CodeSignature"
+	macSetupBackupPath   = "Contents/Resources/SimCity4HD-Original"
 )
 
 func macSetupSupportPaths() []string {
@@ -39,32 +39,23 @@ func macSetupPatchPaths() []string {
 	return paths
 }
 
+func macSetupBackup(bundle string) string {
+	return filepath.Join(bundle, macSetupBackupPath)
+}
+
 func macSetupSavedFiles(bundle string) (string, error) {
-	backup := macSetupBackup(bundle)
-	info, err := os.Lstat(backup)
+	saved := macSetupBackup(bundle)
+	info, err := os.Lstat(saved)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", errors.New("The original game backup is missing.")
+		return "", errors.New("The original game files are missing from this Aspyr app. Select a clean Steam installation.")
 	}
 	if err != nil {
 		return "", err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("The original game backup is invalid: %s", backup)
+		return "", fmt.Errorf("The original game backup is invalid: %s", saved)
 	}
-	for _, candidate := range []string{filepath.Join(backup, macSetupOriginalFiles), filepath.Join(backup, filepath.Base(bundle))} {
-		info, err := os.Lstat(candidate)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("The original game backup is invalid: %s", candidate)
-		}
-		return candidate, nil
-	}
-	return "", errors.New("The original game backup is missing.")
+	return saved, nil
 }
 
 func validateMacSetupDirectories(bundle string) error {
@@ -82,12 +73,16 @@ func validateMacSetupDirectories(bundle string) error {
 	return nil
 }
 
+func macSetupSidecar(bundle, suffix string) string {
+	return filepath.Join(filepath.Dir(bundle), "."+filepath.Base(bundle)+".sc4-setup"+suffix)
+}
+
 func macSetupTransactionDir(bundle string) string {
-	return macSetupBackup(bundle) + ".transaction"
+	return macSetupSidecar(bundle, ".transaction")
 }
 
 func macSetupWork(bundle string) string {
-	return macSetupBackup(bundle) + ".work"
+	return macSetupSidecar(bundle, ".work")
 }
 
 func prepareMacSetupWork(bundle string) (string, error) {
@@ -125,14 +120,6 @@ type macSetupReplacement struct {
 	HadOriginal bool
 }
 
-// An empty path identifies the backup directory next to the game bundle.
-func macSetupTarget(bundle, path string) string {
-	if path == "" {
-		return macSetupBackup(bundle)
-	}
-	return filepath.Join(bundle, path)
-}
-
 func macSetupPrevious(transaction string, index int) string {
 	return filepath.Join(transaction, fmt.Sprintf("previous-%d", index))
 }
@@ -142,7 +129,7 @@ func restoreMacSetupFiles(bundle string, changes []macSetupReplacement) error {
 	var result error
 	for i := len(changes) - 1; i >= 0; i-- {
 		change := changes[i]
-		target := macSetupTarget(bundle, change.Path)
+		target := filepath.Join(bundle, change.Path)
 		previous := macSetupPrevious(transaction, i)
 		_, err := os.Lstat(previous)
 		if errors.Is(err, os.ErrNotExist) {
@@ -193,7 +180,7 @@ func recoverMacSetup(bundle string) (bool, error) {
 		return false, err
 	}
 	allowed := make(map[string]bool)
-	for _, rel := range append(macSetupPatchPaths(), "") {
+	for _, rel := range append(macSetupPatchPaths(), macSetupBackupPath) {
 		allowed[rel] = true
 	}
 	for _, change := range changes {
@@ -210,18 +197,18 @@ func recoverMacSetup(bundle string) (bool, error) {
 
 // Publish the journal before moving any live files. An interrupted run can
 // restore the previous versions by looking for the files already moved aside.
-func applyMacSetupFiles(bundle, work, staged, stagedBackup string, replaceBackup bool, verify func() error) (result error) {
+func applyMacSetupFiles(bundle, work, staged string, replaceBackup bool, verify func() error) (result error) {
 	draft := filepath.Join(work, "journal")
 	if err := os.Mkdir(draft, 0700); err != nil {
 		return err
 	}
 	paths := macSetupPatchPaths()
 	if replaceBackup {
-		paths = append(paths, "")
+		paths = append(paths, macSetupBackupPath)
 	}
 	changes := make([]macSetupReplacement, 0, len(paths))
 	for _, rel := range paths {
-		_, err := os.Lstat(macSetupTarget(bundle, rel))
+		_, err := os.Lstat(filepath.Join(bundle, rel))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -247,25 +234,20 @@ func applyMacSetupFiles(bundle, work, staged, stagedBackup string, replaceBackup
 		}
 	}()
 	for i, change := range changes {
-		target := macSetupTarget(bundle, change.Path)
-		replacement := filepath.Join(staged, change.Path)
-		if change.Path == "" {
-			replacement = stagedBackup
-		}
+		target := filepath.Join(bundle, change.Path)
 		if change.HadOriginal {
 			if err := os.Rename(target, macSetupPrevious(transaction, i)); err != nil {
 				return err
 			}
 		}
-		if replacement != "" {
-			if _, err := os.Lstat(replacement); errors.Is(err, os.ErrNotExist) {
-				continue
-			} else if err != nil {
-				return err
-			}
-			if err := os.Rename(replacement, target); err != nil {
-				return err
-			}
+		replacement := filepath.Join(staged, change.Path)
+		if _, err := os.Lstat(replacement); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, target); err != nil {
+			return err
 		}
 	}
 	if err := verify(); err != nil {

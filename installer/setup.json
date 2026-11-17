@@ -15,9 +15,8 @@
       "id": "game",
       "label": "Game location",
       "browse": "Select SimCity 4 Deluxe",
-      "fileFilter": "SimCity 4 game files (*.exe *.app)",
       "inspectOnChange": true,
-      "prompt": "Choose the Steam game folder, the Aspyr .app, or the game executable.",
+      "prompt": "Choose the Steam game folder or the Aspyr .app.",
       "required": true
     },
     {

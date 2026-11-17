@@ -23,23 +23,33 @@ func Execute(ctx context.Context, command setup.Command, emit func(setup.Event),
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if canSignMacApp {
-			if current, err := readMacSetupReceipt(bundle); err == nil {
-				if filepath.IsAbs(current.Cache) {
-					emit(setup.Event{Type: "field", Field: "cache", Path: current.Cache})
-				}
-				settings := current.settings()
-				settings.Resolution = installedMacResolution()
-				event := setup.Event{Type: "installed", Path: bundle, Settings: settings}
-				if current.NeedsSigning {
-					if current.PendingResolution != "" {
-						settings.Resolution = current.PendingResolution
-					}
-					event.Text = "The mod was installed on Windows. Click Configure, then Apply changes to sign the game on this Mac."
-				}
-				emit(event)
-				return nil
+		if current, err := readMacSetupReceipt(bundle); err == nil {
+			if !canSignMacApp && !current.NeedsSigning {
+				return verifyMacSetupSignature(ctx, bundle)
 			}
+			if _, err := macSetupSavedFiles(bundle); err != nil {
+				return setup.FieldError("game", err)
+			}
+			if filepath.IsAbs(current.Cache) {
+				emit(setup.Event{Type: "field", Field: "cache", Path: current.Cache})
+			}
+			settings := current.settings()
+			if canSignMacApp {
+				settings.Resolution = installedMacResolution()
+			}
+			event := setup.Event{Type: "installed", Path: bundle, Settings: settings}
+			if current.NeedsSigning {
+				if current.PendingResolution != "" {
+					settings.Resolution = current.PendingResolution
+				}
+				if canSignMacApp {
+					event.Text = "The mod was installed on Windows. Click Configure, then Apply changes to sign the game on this Mac."
+				} else {
+					event.Text = "The mod is installed. You can change its settings here and sign the app on your Mac."
+				}
+			}
+			emit(event)
+			return nil
 		}
 		if err := validateMacSetupDirectories(bundle); err != nil {
 			return setup.FieldError("game", err)
@@ -54,11 +64,7 @@ func Execute(ctx context.Context, command setup.Command, emit func(setup.Event),
 			})
 		}
 		return nil
-	case "configure", "remove":
-		if !canSignMacApp {
-			return setup.FieldError("game", fmt.Errorf("Use SimCity 4 UHD Setup on your Mac to %s the mod in the Aspyr app.", command.Action))
-		}
-	case "install":
+	case "install", "configure", "remove":
 	default:
 		return fmt.Errorf("unknown installer command %q", command.Action)
 	}
