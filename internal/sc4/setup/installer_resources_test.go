@@ -1,4 +1,4 @@
-package windows
+package setup
 
 import (
 	"context"
@@ -27,15 +27,15 @@ func TestSetupDownloadRetriesInterruptedResource(t *testing.T) {
 
 	dir := t.TempDir()
 	asked := false
-	deps := setupDependencies{
-		ctx: context.Background(),
-		dir: dir,
-		emit: func(event installEvent) {
+	deps := Resources{
+		Context: context.Background(),
+		Dir:     dir,
+		Emit: func(event Event) {
 			if event.Type == "retry-resource" {
 				asked = true
 			}
 		},
-		waitForRetry: func() error {
+		WaitForRetry: func() error {
 			if !asked || requests.Load() != 1 {
 				t.Fatal("Setup did not wait for Retry after the interrupted download")
 			}
@@ -46,7 +46,7 @@ func TestSetupDownloadRetriesInterruptedResource(t *testing.T) {
 		},
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(payload)))
-	output, err := deps.download(1, "Downloading test resource", "resource.zip", server.URL, digest, 1024)
+	output, err := deps.Download(1, "Downloading test resource", "resource.zip", server.URL, digest, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

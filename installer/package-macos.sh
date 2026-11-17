@@ -82,7 +82,7 @@ cp "$public/installer/resources/russian.sc4pack" "$public/installer/resources/FO
 "$deploy" "$app" -no-strip
 /usr/bin/codesign --verify --strict --deep "$app"
 [[ $("$app/Contents/MacOS/simcity4-uhd" --version) == "$version" ]]
-"$app/Contents/MacOS/simcity4-uhd" setup inspect >/dev/null
+HOME="$stage" "$app/Contents/MacOS/simcity4-uhd" setup inspect >/dev/null
 
 archive="SimCity4UHD-Setup-macos-$arch.zip"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$stage/$archive"

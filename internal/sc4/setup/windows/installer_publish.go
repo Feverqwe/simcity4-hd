@@ -1,3 +1,5 @@
+//go:build windows || darwin
+
 package windows
 
 import (
@@ -11,11 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"unsafe"
 
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/exepatch/pe"
 	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/setup"
 )
 
 const (
@@ -50,35 +51,11 @@ func modInstalled(game string) bool {
 		return false
 	}
 	for _, name := range []string{rendererDLL, rendererINI, graphicsDLL, graphicsINI} {
-		if !fileExists(filepath.Join(plugins, name)) {
+		if !setup.IsRegularFile(filepath.Join(plugins, name)) {
 			return false
 		}
 	}
 	return true
-}
-
-var moveFileEx = syscall.NewLazyDLL("kernel32.dll").NewProc("MoveFileExW")
-
-func moveSetupPath(source, target string, replace bool) error {
-	from, err := syscall.UTF16PtrFromString(source)
-	if err != nil {
-		return err
-	}
-	to, err := syscall.UTF16PtrFromString(target)
-	if err != nil {
-		return err
-	}
-	const writeThrough = 0x8
-	const replaceExisting = 0x1
-	flags := uintptr(writeThrough)
-	if replace {
-		flags |= replaceExisting
-	}
-	ok, _, err := moveFileEx.Call(uintptr(unsafe.Pointer(from)), uintptr(unsafe.Pointer(to)), flags)
-	if ok == 0 {
-		return &os.LinkError{Op: "move", Old: source, New: target, Err: err}
-	}
-	return nil
 }
 
 func publishMod(ctx context.Context, game, work, stage, patched string, stock []byte, renderer []string, graphics string, options setupOptions, fontChanges []setupReplacement, keepWork *bool) (result error) {
@@ -179,7 +156,7 @@ func publishMod(ctx context.Context, game, work, stage, patched string, stock []
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := gamefiles.EnsureGameNotRunning(); err != nil {
+	if err := ensureGameClosed(); err != nil {
 		return err
 	}
 	current, err := os.ReadFile(exe)

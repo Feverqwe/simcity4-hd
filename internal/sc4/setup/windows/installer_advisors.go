@@ -1,3 +1,5 @@
+//go:build windows || darwin
+
 package windows
 
 import (
@@ -45,7 +47,7 @@ func setupAdvisorsCurrent(ctx context.Context, active string) bool {
 
 func stageSetupAdvisors(ctx context.Context, game, folder string) error {
 	// The full game plugin is generated on the destination volume.
-	if err := checkVolumeSpace([]spaceRequest{{game, "the advisor models", 130 * mib}}, lookupSetupVolume); err != nil {
+	if err := setup.CheckSpace(game, 130*mib, "the advisor models"); err != nil {
 		return err
 	}
 	destination := filepath.Join(folder, advisors.AdvisorsPackage)

@@ -3,6 +3,7 @@
   "projectUrl": "https://github.com/Feverqwe/simcity4-hd",
   "projectLinkText": "GitHub",
   "checkForUpdates": true,
+  "detectTarget": true,
   "reconfigure": true,
   "textureArchives": true,
   "artwork": "screenshot.jpg",
@@ -11,10 +12,11 @@
   "paths": [
     {
       "id": "game",
-      "label": "Game folder",
+      "label": "Game location",
       "browse": "Select SimCity 4 Deluxe",
+      "fileFilter": "SimCity 4 game files (*.exe *.app)",
       "inspectOnChange": true,
-      "prompt": "Choose the Steam folder containing SimCity 4 Deluxe.",
+      "prompt": "Choose the Steam game folder, the Aspyr .app, or the game executable.",
       "required": true
     },
     {
@@ -26,8 +28,11 @@
   ],
   "displayResolution": {
     "id": "resolution",
-    "fallback": "3840x2160",
-    "platforms": { "macos": { "fallback": "auto" } }
+    "fallback": "auto",
+    "automatic": true,
+    "values": ["1280x720", "1600x900", "1920x1080", "2560x1440", "3440x1440", "3840x2160"],
+    "editable": true,
+    "platforms": { "windows": { "fallback": "3840x2160" } }
   },
   "options": [
     {
@@ -48,8 +53,7 @@
       "id": "ui",
       "label": "Upscale interface textures and apply UI fixes",
       "default": true,
-      "group": "Interface",
-      "platforms": { "macos": { "backendId": "interface" } }
+      "group": "Interface"
     },
     {
       "id": "language",
@@ -82,11 +86,17 @@
       "requires": "ui"
     },
     {
+      "id": "retina-text",
+      "label": "Render text at Retina density",
+      "default": true,
+      "requires": "ui",
+      "target": "aspyr"
+    },
+    {
       "id": "world",
       "label": "Upscale world textures",
       "default": true,
-      "group": "World",
-      "platforms": { "macos": { "backendId": "world-textures" } }
+      "group": "World"
     },
     {
       "id": "network",
@@ -108,16 +118,18 @@
     },
     {
       "id": "draw-stats",
-      "label": "Log renderer statistics",
+      "label": "Enable renderer statistics",
+      "targetLabels": {
+        "windows": "Log renderer statistics",
+        "aspyr": "Show the frame rate"
+      },
       "default": false,
-      "group": "Game launch",
-      "platform": "windows"
+      "group": "Game launch"
     },
     {
       "id": "skip-intro",
       "label": "Skip the game intro",
-      "default": true,
-      "platforms": { "macos": { "group": "Game launch" } }
+      "default": true
     }
   ],
   "pausingText": "Pausing… Completed textures will be kept.",

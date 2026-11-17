@@ -166,8 +166,14 @@ QJsonObject resolveManifest(QJsonObject config) {
     return config;
 }
 
-QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
+QString resolutionLabel(QString value) {
+    return value == QStringLiteral("auto") ? QObject::tr("Automatic") : value.replace('x', QStringLiteral(" × "));
+}
+
+QComboBox *displayResolutionPicker(const QJsonObject &info, QWidget *parent) {
     auto *picker = new QComboBox(parent);
+    const auto fallback = info.value("fallback").toString();
+    const bool automatic = info.value("automatic").toBool();
     QSize current;
     QList<QSize> available;
 #ifdef Q_OS_WIN
@@ -232,6 +238,8 @@ QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
         auto displayFallback = fallback;
         picker->addItem(QObject::tr("Default (%1)").arg(displayFallback.replace('x', QStringLiteral(" × "))), fallback);
     }
+    if (automatic && fallback != QStringLiteral("auto"))
+        picker->addItem(QObject::tr("Automatic"), QStringLiteral("auto"));
     std::sort(available.begin(), available.end(), [](QSize a, QSize b) {
         return a.width() == b.width() ? a.height() > b.height() : a.width() > b.width();
     });
@@ -239,6 +247,13 @@ QComboBox *displayResolutionPicker(const QString &fallback, QWidget *parent) {
         if (value(size) != picker->itemData(0).toString())
             picker->addItem(label(size), value(size));
     }
+    for (const auto &entry : info.value("values").toArray()) {
+        const auto size = entry.toString();
+        if (!size.isEmpty() && picker->findData(size) < 0)
+            picker->addItem(resolutionLabel(size), size);
+    }
+    picker->setEditable(info.value("editable").toBool());
+    picker->setInsertPolicy(QComboBox::NoInsert);
     return picker;
 }
 
@@ -465,7 +480,7 @@ public:
             const auto id = info.value("id").toString();
             const auto initial = expandPath(info.value("default").toString());
             const bool inspectOnChange = info.value("inspectOnChange").toBool();
-            auto *edit = addPath(form, info.value("label").toString(), initial, info.value("browse").toString(), inspectOnChange);
+            auto *edit = addPath(form, info, initial);
             fields.append({id, info, edit});
             if (inspectOnChange)
                 inspectedPaths.insert(id, edit->text().trimmed());
@@ -477,9 +492,9 @@ public:
         const auto displayOption = config.value("displayResolution").toObject();
         resolutionFlag = displayOption.value("id").toString();
         if (!resolutionFlag.isEmpty()) {
-            resolution = displayResolutionPicker(displayOption.value("fallback").toString(), panel);
+            resolution = displayResolutionPicker(displayOption, panel);
             form->addRow(displayOption.value("label").toString(tr("&Game resolution")), resolution);
-            connect(resolution, &QComboBox::currentIndexChanged, this, [this] {
+            connect(resolution, &QComboBox::currentTextChanged, this, [this] {
                 if (fieldToFix == resolutionFlag)
                     clearFieldError();
             });
@@ -494,6 +509,7 @@ public:
                 const auto id = info.value("id").toString();
                 const auto backendId = info.value("backendId").toString(id);
                 const auto required = info.value("requires").toString();
+                const auto target = info.value("target").toString();
                 const auto group = info.value("group").toString();
                 if (!group.isEmpty()) {
                     auto *caption = new QLabel(group);
@@ -513,7 +529,9 @@ public:
                     const int defaultIndex = qMax(0, picker->findData(defaultChoice(info, assets, uiLanguage)));
                     picker->setCurrentIndex(defaultIndex);
                     picker->setAccessibleName(label);
-                    auto *row = new QHBoxLayout;
+                    auto *wrapper = new QWidget;
+                    auto *row = new QHBoxLayout(wrapper);
+                    row->setContentsMargins(0, 0, 0, 0);
                     if (!required.isEmpty())
                         row->addSpacing(style()->pixelMetric(QStyle::PM_IndicatorWidth));
                     auto *caption = new QLabel(label);
@@ -521,22 +539,26 @@ public:
                     row->addWidget(caption);
                     row->addWidget(picker);
                     row->addStretch();
-                    rows->addLayout(row);
-                    choices.append({backendId, required, picker, caption, defaultIndex});
+                    rows->addWidget(wrapper);
+                    choices.append({backendId, required, target, picker, caption, wrapper, defaultIndex});
                     continue;
                 }
                 auto *box = new QCheckBox(label);
                 const bool defaultChecked = info.value("default").toBool();
                 box->setChecked(defaultChecked);
+                QWidget *wrapper = box;
                 if (required.isEmpty()) {
                     rows->addWidget(box);
                 } else {
-                    auto *row = new QHBoxLayout;
+                    wrapper = new QWidget;
+                    auto *row = new QHBoxLayout(wrapper);
+                    row->setContentsMargins(0, 0, 0, 0);
                     row->addSpacing(style()->pixelMetric(QStyle::PM_IndicatorWidth));
                     row->addWidget(box);
-                    rows->addLayout(row);
+                    rows->addWidget(wrapper);
                 }
-                checkboxes.append({id, backendId, required, box, defaultChecked});
+                checkboxes.append({id, backendId, required, target, label,
+                                   info.value("targetLabels").toObject(), box, wrapper, defaultChecked});
                 connect(box, &QCheckBox::toggled, this, [this] { updateDependencies(); });
             }
             form->addRow(list);
@@ -607,7 +629,8 @@ public:
         play->hide();
         play->setAutoDefault(false);
         connect(play, &QPushButton::clicked, this, [this, completionUrl] {
-            if (!QDesktopServices::openUrl(completionUrl))
+            const auto url = handoffFolder.isEmpty() ? completionUrl : QUrl::fromLocalFile(handoffFolder);
+            if (!QDesktopServices::openUrl(url))
                 QMessageBox::warning(this, tr("Could not launch"), tr("Could not open %1.")
                     .arg(config.value("product").toString()));
         });
@@ -652,6 +675,10 @@ public:
             if (running || inspecting)
                 return;
             if (completed) {
+                inspectSelection();
+                return;
+            }
+            if (inspectionOutdated()) {
                 inspectSelection();
                 return;
             }
@@ -738,11 +765,7 @@ private:
             notice->setDefaultButton(QMessageBox::Cancel);
             notice->open();
         });
-        QStringList args;
-        for (const auto &arg : config.value("backendArgs").toArray())
-            args << arg.toString();
-        args << "check-update";
-        check->start(backend, args);
+        check->start(backend, backendCommand("check-update"));
     }
 
     int preferredHeight(int windowWidth) const {
@@ -783,28 +806,40 @@ private:
     };
 
     struct Option {
-        QString id, backendId, required;
+        QString id, backendId, required, target, label;
+        QJsonObject targetLabels;
         QCheckBox *box;
+        QWidget *row;
         bool defaultChecked;
     };
 
     struct Choice {
-        QString backendId, required;
+        QString backendId, required, target;
         QComboBox *picker;
         QLabel *caption;
+        QWidget *row;
         int defaultIndex;
     };
+
+    bool supportsTarget(const QString &target) const {
+        return target.isEmpty() || target == selectedTarget;
+    }
 
     void updateDependencies() {
         // Parents precede their children in the manifest.
         QHash<QString, bool> active;
         for (const auto &option : checkboxes) {
-            const bool enabled = option.required.isEmpty() || active.value(option.required);
+            const bool shown = supportsTarget(option.target);
+            const bool enabled = shown && (option.required.isEmpty() || active.value(option.required));
+            option.row->setVisible(shown);
+            option.box->setText(option.targetLabels.value(selectedTarget).toString(option.label));
             option.box->setEnabled(enabled);
             active.insert(option.id, enabled && option.box->isChecked());
         }
         for (const auto &choice : choices) {
-            const bool enabled = choice.required.isEmpty() || active.value(choice.required);
+            const bool shown = supportsTarget(choice.target);
+            const bool enabled = shown && (choice.required.isEmpty() || active.value(choice.required));
+            choice.row->setVisible(shown);
             choice.picker->setEnabled(enabled);
             choice.caption->setEnabled(enabled);
         }
@@ -827,7 +862,11 @@ private:
         fieldToFix.clear();
     }
 
-    QLineEdit *addPath(QFormLayout *layout, const QString &label, const QString &value, const QString &title, bool inspectOnChange) {
+    QLineEdit *addPath(QFormLayout *layout, const QJsonObject &info, const QString &value) {
+        const auto label = info.value("label").toString();
+        const auto title = info.value("browse").toString();
+        const auto filter = info.value("fileFilter").toString();
+        const bool inspectOnChange = info.value("inspectOnChange").toBool();
         auto *edit = new QLineEdit(value);
         edit->setAccessibleName(QString(label).remove('&'));
         auto *row = new QWidget;
@@ -842,10 +881,24 @@ private:
         auto *caption = new QLabel(label);
         caption->setBuddy(edit);
         layout->addRow(caption, row);
-        connect(button, &QPushButton::clicked, this, [this, edit, title, inspectOnChange] {
-            if (browse(edit, title) && inspectOnChange)
+        const auto choose = [this, edit, title, inspectOnChange](const QString &fileFilter) {
+            const auto path = fileFilter.isEmpty()
+                ? QFileDialog::getExistingDirectory(this, title, edit->text())
+                : QFileDialog::getOpenFileName(this, title, edit->text(), fileFilter);
+            if (path.isEmpty())
+                return;
+            edit->setText(QDir::toNativeSeparators(path));
+            if (inspectOnChange)
                 inspectSelection();
-        });
+        };
+        if (filter.isEmpty()) {
+            connect(button, &QPushButton::clicked, this, [choose] { choose({}); });
+        } else {
+            auto *menu = new QMenu(button);
+            menu->addAction(tr("Choose folder…"), this, [choose] { choose({}); });
+            menu->addAction(tr("Choose file…"), this, [choose, filter] { choose(filter); });
+            button->setMenu(menu);
+        }
         if (inspectOnChange)
             connect(edit, &QLineEdit::editingFinished, this, [this] {
                 if (inspectionOutdated())
@@ -874,13 +927,17 @@ private:
         }
         installed = reconfigurable = paused = reported = false;
         launcher.clear();
+        readyText.clear();
+        handoffFolder.clear();
+        selectedTarget.clear();
         clearFieldError();
         for (const auto &option : checkboxes)
             option.box->setChecked(option.defaultChecked);
         for (const auto &choice : choices)
             choice.picker->setCurrentIndex(choice.defaultIndex);
         if (resolution)
-            resolution->setCurrentIndex(0);
+            selectResolution(resolution->itemData(0).toString());
+        updateDependencies();
         // Reset paths loaded from a previous installation, while keeping user edits.
         for (const auto &field : fields) {
             if (installedPaths.contains(field.id) && field.edit->text() == installedPaths.value(field.id))
@@ -899,16 +956,12 @@ private:
         startBackend("inspect");
     }
 
-    bool browse(QLineEdit *edit, const QString &title) {
-        const auto selected = QFileDialog::getExistingDirectory(this, title, edit->text());
-        if (selected.isEmpty())
-            return false;
-        edit->setText(QDir::toNativeSeparators(selected));
-        return true;
+    bool canExportTextures() const {
+        return config.value("textureArchives").toBool() && completed && (installed || !handoffFolder.isEmpty());
     }
 
     void chooseTextureArchive(bool exporting) {
-        if (running || inspecting || paused || (exporting ? !completed || !installed : completed))
+        if (running || inspecting || paused || (exporting ? !canExportTextures() : completed))
             return;
         const auto filter = tr("Texture archives (*.zip)");
         auto path = exporting
@@ -923,25 +976,57 @@ private:
             QMessageBox::warning(this, tr("Export textures"), tr("Choose a new file name for the archive."));
             return;
         }
-        QStringList args;
-        for (const auto &arg : config.value("backendArgs").toArray())
-            args << arg.toString();
-        args << (exporting ? "export-textures" : "import-textures");
+        auto args = backendCommand(exporting ? "export-textures" : "import-textures");
         if (const auto *cache = fieldById("cache")) {
             const auto folder = cache->edit->text().trimmed();
             if (!folder.isEmpty())
                 args << "-cache" << QDir::toNativeSeparators(folder);
+        }
+        if (!exporting && config.value("detectTarget").toBool()) {
+            if (const auto *game = fieldById("game")) {
+                const auto path = game->edit->text().trimmed();
+                if (!path.isEmpty())
+                    args << "-game" << QDir::toNativeSeparators(path);
+            }
         }
         args << "-archive" << QDir::toNativeSeparators(path);
         TextureTransferDialog dialog(exporting, this);
         dialog.run(backend, args);
     }
 
-    QStringList arguments(const QString &command) const {
+    void selectResolution(const QString &size) {
+        if (!resolution || size.isEmpty())
+            return;
+        auto index = resolution->findData(size);
+        if (index < 0) {
+            resolution->addItem(resolutionLabel(size), size);
+            index = resolution->count() - 1;
+        }
+        resolution->setCurrentIndex(index);
+        if (resolution->isEditable())
+            resolution->setEditText(resolution->itemText(index));
+    }
+
+    QString resolutionValue() const {
+        const auto text = resolution->currentText().trimmed();
+        const auto index = resolution->findText(text);
+        if (index >= 0)
+            return resolution->itemData(index).toString();
+        return QString(text).toLower().remove(' ').replace(QChar(0x00d7), QLatin1Char('x'));
+    }
+
+    QStringList backendCommand(const QString &command) const {
         QStringList args;
         for (const auto &arg : config.value("backendArgs").toArray())
             args << arg.toString();
         args << command;
+        return args;
+    }
+
+    QStringList arguments(const QString &command) const {
+        auto args = backendCommand(command);
+        if (command != "inspect" && config.value("detectTarget").toBool())
+            args << "-target=" + selectedTarget;
         for (const auto &field : fields) {
             const auto value = field.edit->text().trimmed();
             if (!value.isEmpty())
@@ -949,9 +1034,10 @@ private:
         }
         if (command == "install" || command == "configure") {
             if (resolution)
-                args << "-" + resolutionFlag << resolution->currentData().toString();
+                args << "-" + resolutionFlag << resolutionValue();
             for (const auto &option : checkboxes)
-                args << "-" + option.backendId + "=" + (option.box->isEnabled() && option.box->isChecked() ? "true" : "false");
+                if (supportsTarget(option.target))
+                    args << "-" + option.backendId + "=" + (option.box->isEnabled() && option.box->isChecked() ? "true" : "false");
             for (const auto &choice : choices)
                 if (choice.picker->isEnabled())
                     args << "-" + choice.backendId + "=" + choice.picker->currentData().toString();
@@ -960,6 +1046,14 @@ private:
     }
 
     void startOperation(const QString &command) {
+        if (inspectionOutdated() || (config.value("detectTarget").toBool() && selectedTarget.isEmpty())) {
+            inspectSelection();
+            return;
+        }
+        if ((command == "install" || command == "configure") && resolution && resolutionValue().isEmpty()) {
+            showError(tr("Choose Automatic or enter a game resolution."), resolutionFlag);
+            return;
+        }
         fitHeight();
         operation = command;
         running = true;
@@ -1083,6 +1177,18 @@ private:
                 counter->setText(config.value("progressText").toString(tr("Completed: %L1")).arg(done));
             }
             counter->show();
+        } else if (type == "target" && inspecting) {
+            selectedTarget = event.value("target").toString();
+            updateDependencies();
+            fitHeight();
+        } else if (type == "ready" && inspecting) {
+            readyText = text;
+            selectResolution(event.value("settings").toObject().value("resolution").toString());
+        } else if (type == "handoff" && running) {
+            completed = reported = true;
+            handoffFolder = event.value("path").toString();
+            appendDetails(text.toUtf8() + '\n');
+            status->setText(text);
         } else if (type == "installed") {
             if (running) {
                 completed = true;
@@ -1095,7 +1201,7 @@ private:
             reconfigurable = config.value("reconfigure").toBool() && !settings.isEmpty();
             if (reconfigurable) {
                 if (!completed)
-                    status->setText(config.value("installedText").toString(tr("Installation complete.")));
+                    status->setText(text.isEmpty() ? config.value("installedText").toString(tr("Installation complete.")) : text);
                 const auto values = settings.value("options").toObject();
                 for (const auto &option : checkboxes)
                     if (values.contains(option.backendId))
@@ -1106,16 +1212,7 @@ private:
                     if (index >= 0)
                         choice.picker->setCurrentIndex(index);
                 }
-                const auto size = settings.value("resolution").toString();
-                if (resolution && !size.isEmpty()) {
-                    int index = resolution->findData(size);
-                    if (index < 0) {
-                        auto label = size;
-                        resolution->addItem(label.replace('x', QStringLiteral(" × ")), size);
-                        index = resolution->count() - 1;
-                    }
-                    resolution->setCurrentIndex(index);
-                }
+                selectResolution(settings.value("resolution").toString());
             }
             installed = true;
             reported = true;
@@ -1262,12 +1359,13 @@ private:
         pause->hide();
         primary->show();
         primary->setEnabled(true);
-        play->setVisible(completed && installed && !config.value("completionUrl").toString().isEmpty());
+        play->setText(handoffFolder.isEmpty() ? config.value("completionAction").toString(tr("Open")) : tr("Open folder"));
+        play->setVisible(completed && (!handoffFolder.isEmpty() || (installed && !config.value("completionUrl").toString().isEmpty())));
         const bool archives = config.value("textureArchives").toBool();
         importTextures->setVisible(archives);
         removeInstalled->setVisible(reconfigurable);
         moreActions->setVisible(!completed && !paused && (archives || reconfigurable));
-        exportTextures->setVisible(archives && completed && installed);
+        exportTextures->setVisible(canExportTextures());
         if (completed) {
             counter->hide();
             advanced->setChecked(false);
@@ -1293,7 +1391,7 @@ private:
             primary->setText(paused ? tr("Resume") : tr("Install"));
             advanced->setVisible(!paused);
             if (!wasInstalling && !reported) {
-                status->setText(config.value("readyText").toString(tr("Ready to install.")));
+                status->setText(readyText.isEmpty() ? config.value("readyText").toString(tr("Ready to install.")) : readyText);
                 for (const auto &field : fields) {
                     if (field.required() && field.edit->text().trimmed().isEmpty()) {
                         status->setText(field.info.value("prompt").toString(tr("Choose a folder to continue.")));
@@ -1317,6 +1415,7 @@ private:
     }
 
     QString backend, launcher, fieldToFix, operation;
+    QString readyText, handoffFolder, selectedTarget;
     QHash<QString, QString> inspectedPaths, installedPaths;
     QJsonObject config;
     QProcess process;

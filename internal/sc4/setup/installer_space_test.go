@@ -1,4 +1,6 @@
-package windows
+//go:build windows || darwin
+
+package setup
 
 import (
 	"errors"
@@ -6,9 +8,9 @@ import (
 )
 
 func TestSetupSpaceCombinesRequestsForSameVolume(t *testing.T) {
-	requests := []spaceRequest{
-		{path: "install", label: "HD installation", bytes: 6 * gib},
-		{path: "cache", label: "texture cache", bytes: 5 * gib},
+	requests := []SpaceRequest{
+		{Path: "install", Purpose: "HD installation", Bytes: 6 * gib},
+		{Path: "cache", Purpose: "texture cache", Bytes: 5 * gib},
 	}
 	lookup := func(path string) (setupVolume, error) {
 		if path == "cache" {
@@ -25,9 +27,9 @@ func TestSetupSpaceCombinesRequestsForSameVolume(t *testing.T) {
 }
 
 func TestSetupSpaceAllowsInstallAndCacheOnDifferentVolumes(t *testing.T) {
-	requests := []spaceRequest{
-		{path: "install", label: "HD installation", bytes: 6 * gib},
-		{path: "cache", label: "texture cache", bytes: 5 * gib},
+	requests := []SpaceRequest{
+		{Path: "install", Purpose: "HD installation", Bytes: 6 * gib},
+		{Path: "cache", Purpose: "texture cache", Bytes: 5 * gib},
 	}
 	lookup := func(path string) (setupVolume, error) {
 		return setupVolume{id: path, name: path, free: 6 * gib}, nil

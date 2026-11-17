@@ -134,11 +134,12 @@ to the prepared build directories. Copy the app and install into the copy:
 
 ```sh
 test ! -e "$copy" && test ! -L "$copy" && ditto "$stock" "$copy" &&
-    ./simcity4-uhd setup install -game "$copy" -ui "$ui" -world "$world"
+    ./simcity4-uhd setup install -target=aspyr -game "$copy" -prepared-ui "$ui" -prepared-world "$world"
 ```
 
-Use matching texture scales. For World only, omit `-ui "$ui"`. For Interface
-only, omit `-world "$world"`. Keep stdin open until setup prints an
+Use matching texture scales. For World only, pass `-ui=false` and omit
+`-prepared-ui`. For Interface only, pass `-world=false` and omit
+`-prepared-world`. Keep stdin open until setup prints an
 `installed` event. An EOF on stdin pauses setup, emits `stopped` and exits
 with code 2.
 

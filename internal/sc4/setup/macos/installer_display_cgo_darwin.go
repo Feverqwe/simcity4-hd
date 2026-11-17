@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"errors"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/setup"
 	"strconv"
 	"unsafe"
 
@@ -77,7 +78,7 @@ func publishMacResolution(requested int, publish func() error) error {
 	}
 	var err error
 	if !write(value) {
-		err = macSetupInputError{"resolution", errors.New("Could not save SimCity 4’s game resolution.")}
+		err = setup.FieldError("resolution", errors.New("Could not save SimCity 4’s game resolution."))
 	} else {
 		err = publish()
 	}

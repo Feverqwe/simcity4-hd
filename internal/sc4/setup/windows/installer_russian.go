@@ -1,15 +1,16 @@
+//go:build windows || darwin
+
 package windows
 
 import (
 	"bytes"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/russian"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/setup"
 )
 
 const installedRussianPack = "RussianLanguage.source"
@@ -19,37 +20,7 @@ func originalRussianFont(name string) string {
 }
 
 func hasInstalledRussian(active string) bool {
-	return fileExists(filepath.Join(active, installedRussianPack))
-}
-
-func stageSetupRussianSource(work, installed string) (string, error) {
-	dir := filepath.Join(work, "Russian")
-	pack := ""
-	if installed != "" {
-		pack = filepath.Join(installed, installedRussianPack)
-	} else {
-		exe, err := os.Executable()
-		if err != nil {
-			return "", err
-		}
-		for _, parent := range []string{filepath.Dir(exe), os.Getenv("SETUP_EXE_DIR")} {
-			candidate := filepath.Join(parent, "Russian", russian.PackFile)
-			if filepath.IsAbs(parent) && fileExists(candidate) {
-				pack = candidate
-				break
-			}
-		}
-		if pack == "" {
-			return "", errors.New("Russian language files are missing from the installer.")
-		}
-	}
-	if err := russian.Unpack(pack, dir); err != nil {
-		return "", fmt.Errorf("prepare Russian language files: %w", err)
-	}
-	if err := gamefiles.CopyRegular(pack, filepath.Join(dir, russian.PackFile)); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return setup.IsRegularFile(filepath.Join(active, installedRussianPack))
 }
 
 // Save each original font together with the hash of its installed replacement.
@@ -113,7 +84,7 @@ func stageSetupRussianFonts(game, work, active, newActive, source, ui string) ([
 		}
 	}
 	if source != "" {
-		if err := os.Link(filepath.Join(source, russian.PackFile), filepath.Join(newActive, installedRussianPack)); err != nil {
+		if err := linkSetupFile(filepath.Join(source, russian.PackFile), filepath.Join(newActive, installedRussianPack)); err != nil {
 			return nil, err
 		}
 	}

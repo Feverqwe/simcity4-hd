@@ -1,3 +1,5 @@
+//go:build windows || darwin
+
 package windows
 
 import (
@@ -31,12 +33,6 @@ const installedSettingsChangesFile = "SettingsChanges.json"
 
 var worldOptionIDs = []string{"network", "terrain", "models"}
 
-type installedSettings struct {
-	Options    map[string]bool   `json:"options"`
-	Choices    map[string]string `json:"choices,omitempty"`
-	Resolution string            `json:"resolution,omitempty"`
-}
-
 func isInterfacePackage(name string) bool {
 	switch name {
 	case "tutorial-text-size-7.dat", "credits-text.dat", "cursors-hd.dat", "cursors-hd-x4.dat",
@@ -62,26 +58,26 @@ func isInterfacePackage(name string) bool {
 	return false
 }
 
-func readInstalledSettings(game string, executable []byte) (installedSettings, x86.Options, error) {
+func readInstalledSettings(game string, executable []byte) (setup.Settings, x86.Options, error) {
 	plugins := filepath.Join(game, "Plugins")
 	active := filepath.Join(plugins, modFolder)
 	entries, err := os.ReadDir(active)
 	if err != nil {
-		return installedSettings{}, x86.Options{}, err
+		return setup.Settings{}, x86.Options{}, err
 	}
-	settings := installedSettings{
+	settings := setup.Settings{
 		Options: make(map[string]bool),
 		Choices: map[string]string{"language": "game"},
 	}
 	settings.Options["ui"] = executableHash(executable) != pe.StockHash
 	settings.Options["world"] = false
-	settings.Options["keep-upscaled-images"] = fileExists(filepath.Join(active, installedKeepImagesFile))
+	settings.Options["keep-upscaled-images"] = setup.IsRegularFile(filepath.Join(active, installedKeepImagesFile))
 	var ui x86.Options
 	if settings.Options["ui"] {
-		ui, err = pe.ReadOptions(executable, fileExists(filepath.Join(active, "cursors-hd.dat")) ||
-			fileExists(filepath.Join(active, "cursors-hd-x4.dat")))
+		ui, err = pe.ReadOptions(executable, setup.IsRegularFile(filepath.Join(active, "cursors-hd.dat")) ||
+			setup.IsRegularFile(filepath.Join(active, "cursors-hd-x4.dat")))
 		if err != nil {
-			return installedSettings{}, x86.Options{}, err
+			return setup.Settings{}, x86.Options{}, err
 		}
 	}
 	if settings.Options["ui"] {
@@ -89,7 +85,7 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, x
 		settings.Options["region-map"] = ui.RegionMap
 		settings.Options["loading-preview"] = ui.LoadingPreview
 		scale := "4"
-		if fileExists(filepath.Join(active, "city-hud-x2.dat")) {
+		if setup.IsRegularFile(filepath.Join(active, "city-hud-x2.dat")) {
 			scale = "2"
 		}
 		settings.Choices["texture-scale"] = scale
@@ -109,11 +105,11 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, x
 	if !settings.Options["world"] {
 		parked, err := os.ReadDir(filepath.Join(game, inactiveWorldFolder))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return installedSettings{}, x86.Options{}, err
+			return setup.Settings{}, x86.Options{}, err
 		}
 		previous, err := os.ReadFile(filepath.Join(active, installedWorldSelectionFile))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return installedSettings{}, x86.Options{}, err
+			return setup.Settings{}, x86.Options{}, err
 		}
 		selected := strings.Fields(string(previous))
 		for _, entry := range parked {
@@ -142,15 +138,17 @@ func readInstalledSettings(game string, executable []byte) (installedSettings, x
 	}
 	graphics, err := os.ReadFile(filepath.Join(plugins, graphicsINI))
 	if err != nil {
-		return installedSettings{}, x86.Options{}, err
+		return setup.Settings{}, x86.Options{}, err
 	}
 	renderer, err := os.ReadFile(filepath.Join(plugins, rendererINI))
 	if err != nil {
-		return installedSettings{}, x86.Options{}, err
+		return setup.Settings{}, x86.Options{}, err
 	}
 	width := setupINIValue(string(graphics), "GraphicsOptions", "WindowWidth")
 	height := setupINIValue(string(graphics), "GraphicsOptions", "WindowHeight")
-	if gamefiles.ResolutionPattern.MatchString(width + "x" + height) {
+	if isBorderlessMode(setupINIValue(string(graphics), "GraphicsOptions", "WindowMode")) {
+		settings.Resolution = "auto"
+	} else if gamefiles.ResolutionPattern.MatchString(width + "x" + height) {
 		settings.Resolution = width + "x" + height
 	}
 	settings.Options["skip-intro"] = strings.EqualFold(setupINIValue(string(graphics), "GraphicsOptions", "EnableIntroVideo"), "false")
@@ -173,7 +171,15 @@ func writeSetupCacheSettings(stage, cache string, keepImages bool) error {
 	return nil
 }
 
-func reportInstalled(game string, emit func(installEvent)) error {
+func installedCachePath(game string) string {
+	cache, err := os.ReadFile(filepath.Join(game, "Plugins", modFolder, installedCacheFile))
+	if err != nil || !filepath.IsAbs(string(cache)) {
+		return ""
+	}
+	return string(cache)
+}
+
+func reportInstalled(game string, emit func(setup.Event)) error {
 	executable, err := os.ReadFile(filepath.Join(game, "Apps", gameEXE))
 	if err != nil {
 		return err
@@ -182,11 +188,14 @@ func reportInstalled(game string, emit func(installEvent)) error {
 	if err != nil {
 		return err
 	}
-	cache, err := os.ReadFile(filepath.Join(game, "Plugins", modFolder, installedCacheFile))
-	if err == nil && filepath.IsAbs(string(cache)) {
-		emit(installEvent{Type: "field", Field: "cache", Path: string(cache)})
+	if cache := installedCachePath(game); cache != "" {
+		emit(setup.Event{Type: "field", Field: "cache", Path: cache})
 	}
-	emit(installEvent{Type: "installed", Settings: &settings})
+	event := setup.Event{Type: "installed", Settings: &settings}
+	if foreignGame {
+		event.Text = "SimCity 4 UHD is installed. Play this copy on Windows."
+	}
+	emit(event)
 	return nil
 }
 
@@ -284,6 +293,12 @@ func (changes setupINIChanges) save(stage string) error {
 	return os.WriteFile(filepath.Join(stage, installedSettingsChangesFile), data, 0644)
 }
 
+const borderlessMode = "BorderlessFullScreen"
+
+func isBorderlessMode(mode string) bool {
+	return strings.EqualFold(mode, borderlessMode) || strings.EqualFold(mode, "Borderless")
+}
+
 func (changes setupINIChanges) edit(name, config string, options setupOptions, install, track bool) string {
 	stats := "off"
 	if options.drawStats {
@@ -292,14 +307,34 @@ func (changes setupINIChanges) edit(name, config string, options setupOptions, i
 	settings := []setupINISetting{{Section: "SCD3D11", Key: "DrawStats", Applied: stats}}
 	if name == graphicsINI {
 		settings = []setupINISetting{
-			{Section: "GraphicsOptions", Key: "WindowWidth", Applied: strconv.Itoa(options.width)},
-			{Section: "GraphicsOptions", Key: "WindowHeight", Applied: strconv.Itoa(options.height)},
 			{Section: "GraphicsOptions", Key: "EnableIntroVideo", Applied: strconv.FormatBool(!options.skipIntro)},
+		}
+		if !options.keepResolution {
+			mode := setupINIValue(config, "GraphicsOptions", "WindowMode")
+			if options.width == 0 {
+				settings = append(settings, setupINISetting{Section: "GraphicsOptions", Key: "WindowMode", Applied: borderlessMode})
+				// The game can switch out of borderless mode without saving a new size.
+				width, height, _ := strings.Cut(gamefiles.DefaultResolution, "x")
+				for _, setting := range []setupINISetting{
+					{Section: "GraphicsOptions", Key: "WindowWidth", Applied: width},
+					{Section: "GraphicsOptions", Key: "WindowHeight", Applied: height},
+				} {
+					if setupINIValue(config, setting.Section, setting.Key) == "" {
+						settings = append(settings, setting)
+					}
+				}
+			} else {
+				settings = append(settings,
+					setupINISetting{Section: "GraphicsOptions", Key: "WindowWidth", Applied: strconv.Itoa(options.width)},
+					setupINISetting{Section: "GraphicsOptions", Key: "WindowHeight", Applied: strconv.Itoa(options.height)})
+				if install || mode == "" || isBorderlessMode(mode) {
+					settings = append(settings, setupINISetting{Section: "GraphicsOptions", Key: "WindowMode", Applied: "FullScreen"})
+				}
+			}
 		}
 		for _, setting := range []setupINISetting{
 			{Section: "GraphicsOptions", Key: "Driver", Applied: "DirectX"},
 			{Section: "GraphicsOptions", Key: "ColorDepth", Applied: "32"},
-			{Section: "GraphicsOptions", Key: "WindowMode", Applied: "FullScreen"},
 		} {
 			if install || setupINIValue(config, setting.Section, setting.Key) == "" {
 				settings = append(settings, setting)
@@ -396,21 +431,9 @@ func applySetupReplacements(work string, replacements []setupReplacement, keepWo
 	return nil
 }
 
-func configureHD(ctx context.Context, game, cache string, desired setupOptions, emit func(installEvent), waitForRetry func() error) (result error) {
-	applying := false
-	defer func() {
-		if !applying && result != nil && ctx.Err() != nil {
-			result = ctx.Err()
-		}
-	}()
-	if !filepath.IsAbs(game) {
-		return errors.New("The installed game folder must be an absolute path.")
-	}
-	game, err := filepath.EvalSymlinks(game)
-	if err != nil {
-		return err
-	}
-	unlock, err := installLock(game)
+func configureHD(ctx context.Context, command setup.Command, emit func(setup.Event), waitForRetry func() error) error {
+	game := command.Game
+	unlock, err := setup.LockFolder(game)
 	if err != nil {
 		return err
 	}
@@ -418,7 +441,7 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if !modInstalled(game) {
 		return errors.New("The SimCity 4 UHD installation is incomplete or has changed. Restore the Steam game before continuing.")
 	}
-	if err := gamefiles.EnsureGameNotRunning(); err != nil {
+	if err := ensureGameClosed(); err != nil {
 		return err
 	}
 	exe := filepath.Join(game, "Apps", gameEXE)
@@ -430,13 +453,17 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	if err != nil {
 		return err
 	}
-	scale := strconv.Itoa(desired.textureScale)
-	cursorScaleChanged := desired.interfaceOptions.HdCursors &&
-		fileExists(filepath.Join(game, "Plugins", modFolder, "cursors-hd-x4.dat")) != (scale == "4")
+	desired, err := optionsFor(command.WithInstalledOptions(settings))
+	if err != nil {
+		return err
+	}
+	scale := strconv.Itoa(desired.Scale)
+	cursorScaleChanged := desired.Features.HdCursors &&
+		setup.IsRegularFile(filepath.Join(game, "Plugins", modFolder, "cursors-hd-x4.dat")) != (scale == "4")
 	wasRussian := settings.Choices["language"] == "russian"
-	rebuildUI := desired.ui && (!settings.Options["ui"] || desired.interfaceOptions != oldUI ||
+	rebuildUI := desired.ui && (!settings.Options["ui"] || desired.Features != oldUI ||
 		scale != settings.Choices["texture-scale"] || cursorScaleChanged || desired.russian != wasRussian ||
-		desired.russian && !fileExists(filepath.Join(game, "Plugins", modFolder, uibuild.RussianTextPackage)))
+		desired.russian && !setup.IsRegularFile(filepath.Join(game, "Plugins", modFolder, uibuild.RussianTextPackage)))
 	replaceEXE := rebuildUI || !desired.ui && settings.Options["ui"]
 	var stock []byte
 	if replaceEXE {
@@ -455,6 +482,10 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 	plugins := filepath.Join(game, "Plugins")
 	active := filepath.Join(plugins, modFolder)
 	inactive := filepath.Join(game, inactiveWorldFolder)
+	installedCache := installedCachePath(game)
+	if err := setup.ProtectInstalledCache(installedCache, active, inactive); err != nil {
+		return err
+	}
 	activeFiles, err := os.ReadDir(active)
 	if err != nil {
 		return err
@@ -488,38 +519,10 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 		Terrain: desired.world.Terrain && !available["terrain"],
 		Models:  desired.world.Models && !available["models"],
 	}
-	stages := 3 // Prepare changes, check packages, apply.
-	if rebuildUI {
-		stages++
-	}
-	if missing.Any() {
-		stages++
-	}
-	nextStage := setup.SetupStageProgress(stages, func(done, total int) {
-		emit(installEvent{Type: "overall", Value: done, Total: total})
-	})
-	cache, err = setup.ResolveSetupPath(cache)
+	cache, err := ResolveInstallCache(command.Cache, installedCache, game)
 	if err != nil {
-		return setupInputError{"cache", fmt.Sprintf("Could not open the texture cache: %v", err)}
+		return err
 	}
-	if setup.InsideFolder(game, cache) || setup.InsideFolder(cache, game) {
-		return setupInputError{"cache", "Choose a dedicated texture cache outside the game folder."}
-	}
-	if rebuildUI || missing.Any() {
-		dependencies := filepath.Join(cache, "SetupDependencies")
-		emit(installEvent{Type: "step", Text: "Checking available disk space"})
-		required := desired
-		required.ui, required.world = rebuildUI, missing
-		if err := checkSetupSpace(ctx, game, dependencies, cache, required); err != nil {
-			return err
-		}
-		unlockCache, err := installLock(cache)
-		if err != nil {
-			return err
-		}
-		defer unlockCache()
-	}
-
 	work, err := os.MkdirTemp(game, ".setup-work-")
 	if err != nil {
 		return err
@@ -530,222 +533,196 @@ func configureHD(ctx context.Context, game, cache string, desired setupOptions, 
 			_ = os.RemoveAll(work)
 		}
 	}()
-	newActive, newInactive := filepath.Join(work, "active"), filepath.Join(work, "inactive")
-	for _, folder := range []string{newActive, newInactive} {
-		if err := os.Mkdir(folder, 0755); err != nil {
-			return err
-		}
+	build := setup.TextureBuild{
+		BuildOptions: desired.BuildOptions, Game: game, Cache: cache, Work: work,
+		Interface: rebuildUI, Russian: desired.russian, World: missing, StockExecutable: bytes.Clone(stock),
 	}
-	rememberWorld := settings.Options["world"] && !desired.world.Any()
-	if rememberWorld {
-		selected := []string{"scale=" + settings.Choices["texture-scale"]}
-		for _, option := range worldOptionIDs {
-			if settings.Options[option] {
-				selected = append(selected, option)
-			}
-		}
-		if err := os.WriteFile(filepath.Join(newActive, installedWorldSelectionFile), []byte(strings.Join(selected, "\n")), 0644); err != nil {
-			return err
-		}
-	}
-	emit(installEvent{Type: "step", Text: "Preparing changes to the installed mod"})
-	for _, group := range []struct {
-		directory string
-		entries   []os.DirEntry
-	}{{active, activeFiles}, {inactive, inactiveFiles}} {
-		for _, entry := range group.entries {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			name := entry.Name()
-			target := newActive
-			option, packageScale := worldbuild.Package(name)
-			switch {
-			case option != "":
-				if packageScale != scale || !worldOptions[option] {
-					target = newInactive
-				}
-			case group.directory == inactive:
-				target = newInactive
-			case name == modReceipt || name == installedCacheFile || name == installedKeepImagesFile || name == installedSettingsChangesFile ||
-				rememberWorld && name == installedWorldSelectionFile:
-				continue
-			case name == advisors.AdvisorsPackage || name == installedAdvisorsState:
-				if !desired.ui || rebuildAdvisors {
-					continue
-				}
-			case isInterfacePackage(name) && (!desired.ui || rebuildUI):
-				continue
-			}
-			if !entry.Type().IsRegular() {
-				return fmt.Errorf("Cannot preserve %s because it is not a regular file.", filepath.Join(group.directory, name))
-			}
-			if err := os.Link(filepath.Join(group.directory, name), filepath.Join(target, name)); err != nil {
-				return err
-			}
-		}
-	}
-
-	nextStage()
-	phase := 1
-	deps := setupDependencies{ctx: ctx, dir: filepath.Join(cache, "SetupDependencies"), emit: emit, waitForRetry: waitForRetry}
-	progress := installerBuildProgress(&deps, &phase)
-	uiStage, worldStage := filepath.Join(work, "UI"), filepath.Join(work, "World")
-	var generated []string
 	previousRussian := ""
 	if wasRussian {
 		previousRussian = active
+		build.RussianPack = filepath.Join(active, installedRussianPack)
 	}
-	if rebuildUI {
-		if desired.russian {
-			desired.russianSource, err = stageSetupRussianSource(work, previousRussian)
-			if err != nil {
-				return err
-			}
-		}
-		if err := uibuild.BuildFromExecutable(ctx, setupUIArgs(desired, game, cache, uiStage), progress, bytes.Clone(stock)); err != nil {
-			return err
-		}
-		generated = append(generated, filepath.Join(uiStage, "Plugins"))
-		nextStage()
-	}
-	phase = 2
-	if missing.Any() {
-		if err := worldbuild.BuildWithProgress(ctx, setupWorldArgs(desired, game, cache, worldStage), progress, missing); err != nil {
-			return err
-		}
-		generated = append(generated, filepath.Join(worldStage, "Plugins"))
-		nextStage()
-	}
-	progress.Report("Checking changes to the installed mod")
-	if rebuildAdvisors {
-		progress.Report("Preparing the advisors")
-		if err := stageSetupAdvisors(ctx, game, newActive); err != nil {
-			return err
-		}
-	}
-	if len(generated) > 0 {
-		packages, err := gamefiles.PackagePaths(generated)
-		if err != nil {
-			return err
-		}
-		for _, path := range packages {
-			if err := moveSetupPath(path, filepath.Join(newActive, filepath.Base(path)), false); err != nil {
-				return err
-			}
-		}
-	}
-	if len(generated) > 0 || rebuildAdvisors {
-		packages, err := gamefiles.PackagePaths([]string{newActive})
-		if err != nil {
-			return err
-		}
-		if err := gamefiles.VerifyPackages(packages, os.Stderr); err != nil {
-			return err
-		}
-	}
-	replacements := []setupReplacement{{newActive, active}}
-	if wasRussian != desired.russian || desired.russian && rebuildUI {
-		fontChanges, err := stageSetupRussianFonts(game, work, previousRussian, newActive, desired.russianSource, uiStage)
-		if err != nil {
-			return err
-		}
-		replacements = append(replacements, fontChanges...)
-	}
-	parked, err := os.ReadDir(newInactive)
-	if err != nil {
-		return err
-	}
-	if len(parked) > 0 || inactiveFiles != nil {
-		replacements = append(replacements, setupReplacement{newInactive, inactive})
-	}
-	finalEXE := current
-	if replaceEXE {
-		stagedEXE := filepath.Join(work, gameEXE)
-		if rebuildUI {
-			stagedEXE = filepath.Join(uiStage, "SimCity4-hd.exe")
-			finalEXE, err = os.ReadFile(stagedEXE)
-		} else {
-			finalEXE = stock
-			err = os.WriteFile(stagedEXE, finalEXE, 0644)
-		}
-		if err != nil {
-			return err
-		}
-		if !settings.Options["ui"] {
-			backup := filepath.Join(game, "Apps", stockBackup)
-			existing, err := os.ReadFile(backup)
-			if errors.Is(err, os.ErrNotExist) {
-				stagedBackup := filepath.Join(work, stockBackup)
-				if err := os.WriteFile(stagedBackup, stock, 0644); err != nil {
-					return err
+	plan := setup.InstallationPlan{
+		Textures:   build,
+		CheckSpace: func() error { return checkBuildSpace(ctx, build, false) },
+		Stage: func(outputs setup.TextureOutputs, deps *setup.Resources) (func(context.Context) error, error) {
+			newActive, newInactive := filepath.Join(work, "active"), filepath.Join(work, "inactive")
+			for _, folder := range []string{newActive, newInactive} {
+				if err := os.Mkdir(folder, 0755); err != nil {
+					return nil, err
 				}
-				replacements = append(replacements, setupReplacement{stagedBackup, backup})
-			} else if err != nil {
-				return err
-			} else if !bytes.Equal(existing, stock) {
-				return errors.New("The existing executable backup does not match the original game.")
 			}
-		}
-		replacements = append(replacements, setupReplacement{stagedEXE, exe})
+			rememberWorld := settings.Options["world"] && !desired.world.Any()
+			if rememberWorld {
+				selected := []string{"scale=" + settings.Choices["texture-scale"]}
+				for _, option := range worldOptionIDs {
+					if settings.Options[option] {
+						selected = append(selected, option)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(newActive, installedWorldSelectionFile), []byte(strings.Join(selected, "\n")), 0644); err != nil {
+					return nil, err
+				}
+			}
+			emit(setup.Event{Type: "step", Text: "Preparing changes to the installed mod"})
+			for _, group := range []struct {
+				directory string
+				entries   []os.DirEntry
+			}{{active, activeFiles}, {inactive, inactiveFiles}} {
+				for _, entry := range group.entries {
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+					name := entry.Name()
+					target := newActive
+					option, packageScale := worldbuild.Package(name)
+					switch {
+					case option != "":
+						if packageScale != scale || !worldOptions[option] {
+							target = newInactive
+						}
+					case group.directory == inactive:
+						target = newInactive
+					case name == modReceipt || name == installedCacheFile || name == installedKeepImagesFile || name == installedSettingsChangesFile ||
+						rememberWorld && name == installedWorldSelectionFile:
+						continue
+					case name == advisors.AdvisorsPackage || name == installedAdvisorsState:
+						if !desired.ui || rebuildAdvisors {
+							continue
+						}
+					case isInterfacePackage(name) && (!desired.ui || rebuildUI):
+						continue
+					}
+					if !entry.Type().IsRegular() {
+						return nil, fmt.Errorf("Cannot preserve %s because it is not a regular file.", filepath.Join(group.directory, name))
+					}
+					if err := linkSetupFile(filepath.Join(group.directory, name), filepath.Join(target, name)); err != nil {
+						return nil, err
+					}
+				}
+			}
+
+			generated := outputs.PackageDirs()
+			deps.Step(2, "Checking changes to the installed mod")
+			if rebuildAdvisors {
+				deps.Step(2, "Preparing the advisors")
+				if err := stageSetupAdvisors(ctx, game, newActive); err != nil {
+					return nil, err
+				}
+			}
+			if len(generated) > 0 {
+				packages, err := gamefiles.PackagePaths(generated)
+				if err != nil {
+					return nil, err
+				}
+				for _, path := range packages {
+					if err := moveSetupPath(path, filepath.Join(newActive, filepath.Base(path)), false); err != nil {
+						return nil, err
+					}
+				}
+			}
+			if len(generated) > 0 || rebuildAdvisors {
+				packages, err := gamefiles.PackagePaths([]string{newActive})
+				if err != nil {
+					return nil, err
+				}
+				if err := gamefiles.VerifyPackages(packages, os.Stderr); err != nil {
+					return nil, err
+				}
+			}
+			replacements := []setupReplacement{{newActive, active}}
+			if wasRussian != desired.russian || desired.russian && rebuildUI {
+				fontChanges, err := stageSetupRussianFonts(game, work, previousRussian, newActive, outputs.RussianSource, outputs.Interface)
+				if err != nil {
+					return nil, err
+				}
+				replacements = append(replacements, fontChanges...)
+			}
+			parked, err := os.ReadDir(newInactive)
+			if err != nil {
+				return nil, err
+			}
+			if len(parked) > 0 || inactiveFiles != nil {
+				replacements = append(replacements, setupReplacement{newInactive, inactive})
+			}
+			finalEXE := current
+			if replaceEXE {
+				stagedEXE := filepath.Join(work, gameEXE)
+				if rebuildUI {
+					stagedEXE = filepath.Join(outputs.Interface, "SimCity4-hd.exe")
+					finalEXE, err = os.ReadFile(stagedEXE)
+				} else {
+					finalEXE = stock
+					err = os.WriteFile(stagedEXE, finalEXE, 0644)
+				}
+				if err != nil {
+					return nil, err
+				}
+				if !settings.Options["ui"] {
+					backup := filepath.Join(game, "Apps", stockBackup)
+					existing, err := os.ReadFile(backup)
+					if errors.Is(err, os.ErrNotExist) {
+						stagedBackup := filepath.Join(work, stockBackup)
+						if err := os.WriteFile(stagedBackup, stock, 0644); err != nil {
+							return nil, err
+						}
+						replacements = append(replacements, setupReplacement{stagedBackup, backup})
+					} else if err != nil {
+						return nil, err
+					} else if !bytes.Equal(existing, stock) {
+						return nil, errors.New("The existing executable backup does not match the original game.")
+					}
+				}
+				replacements = append(replacements, setupReplacement{stagedEXE, exe})
+			}
+			if err := os.WriteFile(filepath.Join(newActive, modReceipt), []byte(executableHash(finalEXE)), 0644); err != nil {
+				return nil, err
+			}
+			if err := writeSetupCacheSettings(newActive, cache, desired.KeepUpscaledImages); err != nil {
+				return nil, err
+			}
+			for _, name := range []string{graphicsINI, rendererINI} {
+				target := filepath.Join(plugins, name)
+				old, err := os.ReadFile(target)
+				if err != nil {
+					return nil, err
+				}
+				updated := iniChanges.edit(name, string(old), desired, false, !slices.Contains(installedFiles, name))
+				if updated == string(old) {
+					continue
+				}
+				staged := filepath.Join(work, name)
+				if err := os.WriteFile(staged, []byte(updated), 0644); err != nil {
+					return nil, err
+				}
+				replacements = append(replacements, setupReplacement{staged, target})
+			}
+			if err := iniChanges.save(newActive); err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if err := ensureGameClosed(); err != nil {
+				return nil, err
+			}
+			observed, err := os.ReadFile(exe)
+			if err != nil {
+				return nil, err
+			}
+			if !bytes.Equal(observed, current) {
+				return nil, errors.New("The game executable changed while setup was running. Try again.")
+			}
+			return func(context.Context) error {
+				return applySetupReplacements(work, replacements, &keepWork)
+			}, nil
+		},
 	}
-	if err := os.WriteFile(filepath.Join(newActive, modReceipt), []byte(executableHash(finalEXE)), 0644); err != nil {
-		return err
-	}
-	if err := writeSetupCacheSettings(newActive, cache, desired.keepUpscaledImages); err != nil {
-		return err
-	}
-	for _, name := range []string{graphicsINI, rendererINI} {
-		target := filepath.Join(plugins, name)
-		old, err := os.ReadFile(target)
-		if err != nil {
-			return err
-		}
-		updated := iniChanges.edit(name, string(old), desired, false, !slices.Contains(installedFiles, name))
-		if updated == string(old) {
-			continue
-		}
-		staged := filepath.Join(work, name)
-		if err := os.WriteFile(staged, []byte(updated), 0644); err != nil {
-			return err
-		}
-		replacements = append(replacements, setupReplacement{staged, target})
-	}
-	if err := iniChanges.save(newActive); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := gamefiles.EnsureGameNotRunning(); err != nil {
-		return err
-	}
-	observed, err := os.ReadFile(exe)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(observed, current) {
-		return errors.New("The game executable changed while setup was running. Try again.")
-	}
-	nextStage()
-	emit(installEvent{Type: "step", Text: "Applying changes to the installed mod"})
-	applying = true
-	if err := applySetupReplacements(work, replacements, &keepWork); err != nil {
-		return err
-	}
-	nextStage()
-	return nil
+	return plan.Run(ctx, emit, waitForRetry)
 }
 
-func removeHD(game string) error {
-	if !filepath.IsAbs(game) {
-		return errors.New("The installed game folder must be an absolute path.")
-	}
-	game, err := filepath.EvalSymlinks(game)
-	if err != nil {
-		return err
-	}
-	unlock, err := installLock(game)
+func removeHD(game, cache string) error {
+	unlock, err := setup.LockFolder(game)
 	if err != nil {
 		return err
 	}
@@ -753,7 +730,15 @@ func removeHD(game string) error {
 	if !modInstalled(game) {
 		return errors.New("The SimCity 4 UHD installation is incomplete or has changed. Restore the Steam game before continuing.")
 	}
-	if err := gamefiles.EnsureGameNotRunning(); err != nil {
+	if err := ensureGameClosed(); err != nil {
+		return err
+	}
+	active := filepath.Join(game, "Plugins", modFolder)
+	inactive := filepath.Join(game, inactiveWorldFolder)
+	if err := setup.ProtectInstalledCache(installedCachePath(game), active, inactive); err != nil {
+		return err
+	}
+	if err := setup.ProtectInstalledCache(cache, active, inactive); err != nil {
 		return err
 	}
 	work, err := os.MkdirTemp(game, ".setup-work-")
@@ -787,7 +772,6 @@ func removeHD(game string) error {
 		changes = append(changes, setupReplacement{staged, exe})
 	}
 	plugins := filepath.Join(game, "Plugins")
-	active := filepath.Join(plugins, modFolder)
 	files, err := readInstalledFiles(active)
 	if err != nil {
 		return err
@@ -828,6 +812,6 @@ func removeHD(game string) error {
 		}
 		changes = append(changes, fontChanges...)
 	}
-	changes = append(changes, setupReplacement{target: active}, setupReplacement{target: filepath.Join(game, inactiveWorldFolder)})
+	changes = append(changes, setupReplacement{target: active}, setupReplacement{target: inactive})
 	return applySetupReplacements(work, changes, &keepWork)
 }

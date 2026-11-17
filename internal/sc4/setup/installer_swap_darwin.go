@@ -1,6 +1,6 @@
 //go:build cgo
 
-package macos
+package setup
 
 /*
 #include <stdio.h>
@@ -13,7 +13,7 @@ import (
 	"unsafe"
 )
 
-func moveNewMacTextureArchive(from, to string) error {
+func publishTextureArchive(from, to string) error {
 	return renameMacPath(from, to, C.RENAME_EXCL)
 }
 

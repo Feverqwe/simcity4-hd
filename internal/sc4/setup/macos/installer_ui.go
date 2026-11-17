@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
 )
 
 type macInstalledInterface struct {
@@ -33,27 +31,6 @@ func macCursorAssetScale(packages []string) int {
 
 func macInactiveCursor(bundle string) string {
 	return filepath.Join(bundle, "Contents", "Resources", "SimCity4HD-InactiveCursor")
-}
-
-func availableMacPreparedUI(bundle, path string) string {
-	path = availableMacPreparedBuild(path)
-	if path == "" {
-		return ""
-	}
-	packages, err := preparedMacPackages(&path)
-	if err != nil {
-		return ""
-	}
-	stock, err := macSetupSavedFiles(bundle)
-	if err != nil {
-		return ""
-	}
-	// An old executable in a remembered build would override the installed
-	// assets on Configure. Only offer a build that can be selected again.
-	if _, err := macSetupExecutable(gamefiles.ExecutablePath(stock, true), path, packages, 0, nil, nil); err != nil {
-		return ""
-	}
-	return path
 }
 
 func planMacInstalledInterface(bundle string, current macSetupRecord, sources macSetupSources) (macInstalledInterface, error) {

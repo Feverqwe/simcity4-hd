@@ -36,6 +36,23 @@ For reuse in another product, see the [Qt frontend contract](qt/README.md).
 
 ## macOS setup
 
+You can run Setup on either operating system with a copy of the supported
+Steam game for the other platform. Select the game folder, Aspyr `.app`,
+or game executable in **Advanced options** and click **Install**. The computer running
+Setup supplies the GPU for any missing textures.
+Use **Export textures** after installation to take the completed textures
+to the other computer for future changes.
+
+After installing the Aspyr mod on Windows, copy the patched `.app` and its
+adjacent `.sc4-uhd-original` backup folder to the same location on your Mac.
+Select the patched game in macOS Setup, click **Configure**, then click
+**Apply changes** to sign the app with its existing settings. Keep the
+backup next to the app for future configuration or removal.
+
+After installing for the Windows edition on a Mac, use the patched game
+folder on Windows. **Automatic** runs the Windows game at the primary
+display's resolution in borderless fullscreen.
+
 To build the release ZIP locally, use a native Apple silicon terminal with
 Go, Xcode Command Line Tools and a native Qt kit with `macdeployqt`.
 Follow the [frontend build requirements](qt/README.md) and run
