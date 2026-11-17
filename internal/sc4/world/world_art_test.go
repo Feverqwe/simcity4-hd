@@ -38,7 +38,7 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 			binary.LittleEndian.PutUint32(stock[4:], uint32(len(stock)))
 
 			root := t.TempDir()
-			cache := func(scale int) string { return filepath.Join(root, fmt.Sprint(scale)) }
+			cache := func(scale int) string { return texturecache.ModelCache(root, scale) }
 			calls := 0
 			infer := func(data []byte) ([]byte, error) {
 				source, err := textures.DecodeRGBA(data)
@@ -75,7 +75,7 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				t.Fatal(err)
 			}
 			compiledArchive := filepath.Join(t.TempDir(), "compiled.zip")
-			if err := texturecache.ExportTextureArchive(ctx, compiled, compiledArchive, texturecache.ArchiveProgress{}); err != nil {
+			if err := texturecache.ExportTextureArchive(ctx, compiled, compiledArchive, nil, texturecache.ArchiveProgress{}); err != nil {
 				t.Fatal(err)
 			}
 			imported := t.TempDir()
@@ -123,7 +123,7 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				t.Fatalf("same-scale rebuild did not reuse its compiled texture: %v", err)
 			}
 			archive := filepath.Join(t.TempDir(), "textures.zip")
-			if err := texturecache.ExportTextureArchive(ctx, root, archive, texturecache.ArchiveProgress{}); err != nil {
+			if err := texturecache.ExportTextureArchive(ctx, root, archive, []string{"world-x2", "original"}, texturecache.ArchiveProgress{}); err != nil {
 				t.Fatal(err)
 			}
 			root = t.TempDir()
@@ -149,6 +149,22 @@ func TestWorldX2BuildKeepsX4Inference(t *testing.T) {
 				}
 			}
 			art.scale = 2
+			art.infer = nil
+			newX2Cache := t.TempDir()
+			packed := func(scale int) string {
+				if scale == 4 {
+					return cache(4)
+				}
+				return newX2Cache
+			}
+			fromX4, err := art.texture(packed, stock, false)
+			if mipmapped {
+				if err != nil || !bytes.Equal(fromX4, x2) {
+					t.Fatalf("the packed x4 cache did not supply the identical x2 texture: %v", err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("an x4 texture without an x2 mip must require the model output: %v", err)
+			}
 			again, err := art.texture(cache, stock, false)
 			if err != nil || !bytes.Equal(x2, again) || calls != 1 {
 				t.Fatalf("x2 cache replay failed (inference calls: %d): %v", calls, err)

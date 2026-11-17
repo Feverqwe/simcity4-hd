@@ -17,7 +17,8 @@ import (
 
 func runInstaller(args []string) int {
 	return setup.Run(args, func(ctx context.Context, command setup.Command, emit func(setup.Event), retry func() error) error {
-		if command.Action == "export-textures" || (command.Action == "import-textures" && command.Game == "") {
+		if command.Action == "list-textures" || command.Action == "export-textures" ||
+			(command.Action == "import-textures" && command.Game == "") {
 			cache, err := setup.ResolveCache(command.Cache, "")
 			if err != nil {
 				return err

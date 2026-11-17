@@ -15,13 +15,7 @@ import (
 	textures "github.com/Feverqwe/simcity4-hd/internal/sc4/texture"
 )
 
-const (
-	InferenceCacheFolder = "UpscaledImages"
-	InterfaceAtlasFolder = "InterfaceAtlases"
-	CatalogFramesFolder  = "CatalogFrames"
-	PortraitsFolder      = "MySimPortraits"
-	CursorsFolder        = "Cursors"
-)
+const InferenceCacheFolder = "Textures-original"
 
 // The key describes the model's input and settings. Changes to the output
 // packages, texture compression or atlas layout do not change the key.
@@ -41,7 +35,8 @@ func CachedInference(ctx context.Context, cache string, config Config, infer fun
 			start := y * source.Stride
 			key.Write(source.Pix[start : start+4*width])
 		}
-		path := filepath.Join(cache, InferenceCacheFolder, fmt.Sprintf("%x.png", key.Sum(nil)))
+		name := fmt.Sprintf("%x.png", key.Sum(nil))
+		path := filepath.Join(cache, InferenceCacheFolder, name)
 		validate := func(output []byte) ([]byte, error) {
 			cfg, err := png.DecodeConfig(bytes.NewReader(output))
 			if err != nil {

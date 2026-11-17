@@ -15,9 +15,8 @@ func appendMachODisasterBackground(code []byte, patches []x86.Patch) ([]byte, []
 		original   = "488b4308488945c0"
 		loadByKey  = 0x043bce
 		closeImage = 0x043df0
-		factory    = 0x03f2d4 // RZ::GZCOM.
 	)
-	project := macUIOptionalCode + len(code)
+	selectDense := macUIOptionalCode + len(code)
 	code = append(code, patchsrc.MacDisasterBackgroundCode...)
 	patches = append(patches, machOFeatureJump(code, site, original))
 	// RBX owns the loaded fallback. The compositor reads its buffer slot next.
@@ -26,9 +25,7 @@ func appendMachODisasterBackground(code []byte, patches []x86.Patch) ([]byte, []
 	code = append(code, x86.RelativeInstruction(0x15, macUIOptionalCode+len(code), loadByKey)...)
 	code = append(code, x86.HexBytes("488d")...)
 	code = append(code, x86.RelativeInstruction(0x0d, macUIOptionalCode+len(code), closeImage)...)
-	code = append(code, x86.HexBytes("4c8d")...)
-	code = append(code, x86.RelativeInstruction(0x05, macUIOptionalCode+len(code), factory)...)
-	code = append(code, x86.RelativeInstruction(0xe8, macUIOptionalCode+len(code), project)...)
+	code = append(code, x86.RelativeInstruction(0xe8, macUIOptionalCode+len(code), selectDense)...)
 	code = append(code, x86.HexBytes(original)...)
 	code = append(code, x86.RelativeInstruction(0xe9, macUIOptionalCode+len(code), site+len(original)/2)...)
 	return code, patches

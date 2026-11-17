@@ -27,19 +27,18 @@ func appendDisasterBackgroundPatch(stub []byte, patches []x86.Patch, base int) (
 		site          = 0x3e7459
 		loadBitmapVA  = 0x602b00
 		closeBitmapVA = 0x602be0
-		bufferFactory = 0x90ddf1
 	)
 	entry := base + len(stub)
 	stub = append(stub, patchsrc.PrepareDisasterBackground...)
 	original := x86.HexBytes("8b5424406850010000")
 	// Save the caller's state and pass the bitmap resource that it just loaded.
 	body := x86.HexBytes("9c608d442460")
-	for _, arg := range []uint32{bufferFactory, closeBitmapVA, loadBitmapVA, uiids.DisasterBackgroundX4} {
+	for _, arg := range []uint32{closeBitmapVA, loadBitmapVA, uiids.DisasterBackgroundX4} {
 		body = binary.LittleEndian.AppendUint32(append(body, 0x68), arg)
 	}
 	body = append(body, 0x50)
 	body = append(body, x86.RelativeInstruction(0xe8, base+len(stub)+len(body), entry)...)
-	body = append(body, x86.HexBytes("83c414619d")...)
+	body = append(body, x86.HexBytes("83c410619d")...)
 	body = append(body, original...)
 	var patch x86.Patch
 	stub, patch = x86.AppendStub(stub, base, site, original, body)
@@ -171,6 +170,7 @@ func Patch(data []byte, textureScale int, options x86.Options) ([]byte, error) {
 	}
 	if textureScale == 4 {
 		stub, patches = appendDisasterBackgroundPatch(stub, patches, stubRVA)
+		stub, patches = appendCatalogPatches(stub, patches, stubRVA)
 
 		// Both My Sims preview loaders assign full-density bitmaps at runtime.
 		// Mark them for the density painter and for physical source clipping.

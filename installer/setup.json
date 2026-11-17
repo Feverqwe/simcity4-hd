@@ -6,6 +6,7 @@
   "detectTarget": true,
   "reconfigure": true,
   "textureArchives": true,
+  "textureExportSelection": true,
   "artwork": "screenshot.jpg",
   "readyText": "SimCity 4 Deluxe found. Close the game before installing the HD mod.",
   "progressText": "Images processed: %L1",
@@ -37,7 +38,7 @@
   "options": [
     {
       "id": "keep-upscaled-images",
-      "label": "Keep original upscaled images for future rebuilds",
+      "label": "Keep original upscaled PNGs",
       "default": false
     },
     {

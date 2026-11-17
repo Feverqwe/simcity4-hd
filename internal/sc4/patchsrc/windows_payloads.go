@@ -60,3 +60,15 @@ var KeyboardHelpCode []byte
 
 //go:embed ui_region_tile.i386
 var ExpandRegionTile []byte
+
+//go:embed ui_catalog_paint.i386
+var WinCatalogPaint []byte
+
+//go:embed ui_catalog_tile.i386
+var WinCatalogTile []byte
+
+//go:embed ui_catalog_height.i386
+var WinCatalogHeight []byte
+
+//go:embed ui_catalog_button.i386
+var WinCatalogButton []byte

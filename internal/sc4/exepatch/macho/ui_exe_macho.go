@@ -53,12 +53,12 @@ func PatchUI(data []byte, textureScale int) ([]byte, error) {
 		x86.Instruction(0x78940a, "83c705", "83c70a"),
 		x86.Instruction(0x789410, "be05000000", "be0a000000"),
 		x86.Instruction(0x789418, "8d530b", "8d5316"),
-		// Restoring a collapsed HUD uses the projected button and doubled offsets.
+		// Restoring a collapsed HUD uses the HD button and doubled offsets.
 		x86.Instruction(0x7894b2, "48b8acdb6d85b006a046", "48b8acdb6d85bd404ae7"),
 		x86.Instruction(0x7896bd, "83c0e4be0c000000", "83c0c8be18000000"),
 		x86.Instruction(0x78bb9b, "41b9a264258a", "41b9c3404ae7"),
 		// Catalog and Disasters create their menus in code and consume
-		// the projected 88-pixel cells from the same DATs as Windows.
+		// 88-pixel logical cells at both texture densities.
 		x86.Instruction(0x78d20d, "be2c000000ba2c000000b905000000", "be58000000ba58000000b90a000000"),
 		x86.Instruction(0x78d7ac, "be2c000000ba2c000000b905000000", "be58000000ba58000000b90a000000"),
 		x86.Instruction(0x78d473, "c74424101d000000c74424081b000000c7042404000000", "c74424103a000000c744240836000000c7042408000000"),

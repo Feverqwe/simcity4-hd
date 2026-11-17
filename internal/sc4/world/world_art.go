@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
 	textures "github.com/Feverqwe/simcity4-hd/internal/sc4/texture"
@@ -30,25 +31,36 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 	}
 	name := fmt.Sprintf("%x.fsh", sha256.Sum256(original))
 	path := filepath.Join(cache(a.scale), name)
+	read := func(scale int) ([]byte, error) {
+		return os.ReadFile(filepath.Join(cache(scale), name))
+	}
 	validate := func(data []byte) ([]byte, error) {
 		data, err := ReadWorldTexture(original, data, a.scale, placement, func() ([]byte, error) {
-			return os.ReadFile(filepath.Join(cache(2), name))
+			return read(2)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		return data, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := read(a.scale)
 	if err == nil {
 		return validate(data)
 	}
-	if !errors.Is(err, os.ErrNotExist) || a.infer == nil {
+	if !errors.Is(err, os.ErrNotExist) {
 		return data, err
 	}
-	data, err = textures.RebuildBCTexture(original, a.scale, placement, a.upscale)
-	if err != nil {
-		return nil, err
+	if a.scale == 2 {
+		data = readPackedX2(original, placement, func() ([]byte, error) { return read(4) })
+	}
+	if data == nil {
+		if a.infer == nil {
+			return nil, err
+		}
+		data, err = textures.RebuildBCTexture(original, a.scale, placement, a.upscale)
+		if err != nil {
+			return nil, err
+		}
 	}
 	err = gamefiles.PublishFile(path, func(w io.Writer) error {
 		_, err := io.Copy(w, gamefiles.WithContext(a.ctx, bytes.NewReader(data)))
@@ -62,6 +74,28 @@ func (a worldArtwork) texture(cache func(int) string, original []byte, placement
 		return nil, err
 	}
 	return data, nil
+}
+
+func readPackedX2(stock []byte, placement bool, readX4 func() ([]byte, error)) []byte {
+	elements, err := textures.FSHLayout(stock)
+	if err != nil || slices.ContainsFunc(elements, func(e textures.FSHElement) bool { return e.MipCount() == 0 }) {
+		return nil
+	}
+	x4, err := readX4()
+	if err != nil || validateWorldTexture(stock, x4, 4) != nil {
+		return nil
+	}
+	cached, _ := textures.FSHLayout(x4)
+	// The first mip in a current x4 texture is encoded from the same pixels as the x2 top level.
+	x2, err := textures.RepackBCTexture(stock, 2, placement, func(i int, e textures.FSHElement, _ []byte) ([]byte, error) {
+		block := textures.BCBlockSize(e.Code)
+		start := cached[i].Start + 16 + textures.BCLevelBytes(e.Width*4, e.Height*4, block)
+		return x4[start : start+textures.BCLevelBytes(e.Width*2, e.Height*2, block)], nil
+	})
+	if err != nil {
+		return nil
+	}
+	return x2
 }
 
 func (a worldArtwork) upscale(source *image.NRGBA) (*image.NRGBA, error) {

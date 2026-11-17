@@ -97,7 +97,8 @@ func (s uiStock) windowGroups(scaleStartup bool) ([]windowGroup, error) {
 	return groups, nil
 }
 
-func buildWindowEntries(stock uiStock, config string, windows bool, textureScale int, art func(layoutAtlas, []byte) ([]byte, error)) ([]dbpf.Entry, string, error) {
+func buildWindowEntries(stock uiStock, config string, windows bool, art uiArtwork) ([]dbpf.Entry, string, error) {
+	textureScale := art.scale
 	groups, err := stock.windowGroups(windows)
 	if err != nil {
 		return nil, "", err
@@ -138,15 +139,11 @@ func buildWindowEntries(stock uiStock, config string, windows bool, textureScale
 			if err != nil {
 				return nil, "", err
 			}
-			data, err := art(asset.atlas, original)
-			if err != nil {
-				return nil, "", fmt.Errorf("%s: %w", asset.atlas.source, err)
-			}
+			var options atlasOptions
 			if window.group == 0xe74a40b7 && asset.atlas.source == graphicsComboFrameSource {
-				data, err = maskGraphicsComboBackdrop(original, data, textureScale)
-				if err != nil {
-					return nil, "", fmt.Errorf("graphics combo frame: %w", err)
-				}
+				options = atlasOptions{variant: "graphics-combo", finish: func(data []byte) ([]byte, error) {
+					return maskGraphicsComboBackdrop(original, data, textureScale)
+				}}
 			}
 			joinID, artScale := asset.target, textureScale
 			if asset.atlas.project {
@@ -157,14 +154,25 @@ func buildWindowEntries(stock uiStock, config string, windows bool, textureScale
 				edgeFrames := 0
 				if (joinID.Group == 0xe74a40b7 && joinID.Instance == 0xbdd0852c) ||
 					(joinID.Group == 0xe74a40b6 && joinID.Instance == 0xa0653af9) {
-					// The model brightens the Add My Sim border and the
-					// corners of the Polls outline where it covers the fill.
+					// Preserve the thin borders of the Add My Sim and Polls artwork.
 					edgeFrames = asset.atlas.frames
 				}
-				data, err = preserveStockAlpha(original, data, artScale, edgeFrames)
-				if err != nil {
-					return nil, "", fmt.Errorf("%s: %w", asset.target, err)
+				finish := options.finish
+				options.variant += fmt.Sprintf("/stock-alpha-%d", edgeFrames)
+				options.finish = func(data []byte) ([]byte, error) {
+					if finish != nil {
+						var err error
+						data, err = finish(data)
+						if err != nil {
+							return nil, err
+						}
+					}
+					return preserveStockAlpha(original, data, artScale, edgeFrames)
 				}
+			}
+			data, err := art.upscaleAtlas(asset.atlas, original, options)
+			if err != nil {
+				return nil, "", fmt.Errorf("%s: %w", asset.target, err)
 			}
 			entries = append(entries, dbpf.Entry{ID: asset.target, Data: data})
 		}

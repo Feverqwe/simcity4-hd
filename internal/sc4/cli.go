@@ -16,7 +16,7 @@ import (
 )
 
 const usage = "Usage: simcity4-uhd <setup|ui|world|russian-pack|advisors|verify|tutorial|patch-ui-exe|terrain-indexed|network-textures|model-textures|index-materials|catalog-sheets|catalog-chrome|mysim-portraits|launch> ..."
-const setupUsage = "Usage: simcity4-uhd setup <inspect|install|configure|remove|import-textures|export-textures|check-update> ..."
+const setupUsage = "Usage: simcity4-uhd setup <inspect|install|configure|remove|import-textures|list-textures|export-textures|check-update> ..."
 
 func isHelp(arg string) bool {
 	return arg == "-h" || arg == "-help" || arg == "--help"
@@ -131,7 +131,7 @@ func runSetupCLI(args []string, version string) int {
 			return 1
 		}
 		return 0
-	case "inspect", "install", "configure", "remove", "import-textures", "export-textures":
+	case "inspect", "install", "configure", "remove", "import-textures", "list-textures", "export-textures":
 		return runInstaller(args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown setup command %q. Use setup --help for the command list.\n", args[0])

@@ -36,16 +36,16 @@ func runtimeArtwork(stock uiStock, art uiArtwork, instance uint32, frames int, k
 	if err != nil {
 		return dbpf.Entry{}, err
 	}
-	data, err := art.upscale(layoutAtlas{source: source, frames: frames, project: true}, original)
+	var options atlasOptions
+	if keepAlpha {
+		options.variant = "screen-alpha"
+		options.finish = func(data []byte) ([]byte, error) { return copyScreenAlpha(original, data) }
+	}
+	data, err := art.upscaleAtlas(layoutAtlas{source: source, frames: frames, project: true}, original, options)
 	if err != nil {
 		return dbpf.Entry{}, fmt.Errorf("runtime image %s: %w", source, err)
 	}
-	if keepAlpha {
-		data, err = copyScreenAlpha(original, data)
-		if err != nil {
-			return dbpf.Entry{}, fmt.Errorf("runtime image alpha %s: %w", source, err)
-		}
-	}
+
 	return dbpf.Entry{ID: target, Data: data}, nil
 }
 

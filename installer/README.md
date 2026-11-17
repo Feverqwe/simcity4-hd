@@ -34,6 +34,13 @@ For repeated local builds, put `ccache` on PATH and set
 
 For reuse in another product, see the [Qt frontend contract](qt/README.md).
 
+Setup keeps ready-to-use interface atlases and World textures in
+`Textures-prepared`, grouped by their actual texture density. Catalog
+atlases are available at the selected ×2 or ×4 density. Enable **Keep
+original upscaled PNGs** to also keep the model output in
+`Textures-original`. **Export textures** lists the available groups and
+preselects ready-to-use textures.
+
 ## macOS setup
 
 You can run Setup on either operating system with a copy of the supported

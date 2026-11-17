@@ -3,7 +3,6 @@ package ui
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,18 +19,6 @@ import (
 
 const uiImage = 0x856ddbac
 const catalogIconGroup = 0x6a386d26
-
-func uiCachePath(cache string, id dbpf.ID, original []byte, frames, scale int, keyed bool) string {
-	suffix := ""
-	if keyed {
-		suffix += "-keyed"
-	}
-	if scale != 2 {
-		suffix += fmt.Sprintf("-x%d", scale)
-	}
-	return filepath.Join(cache, fmt.Sprintf("%08x-%08x-%08x-%d-%x%s.png",
-		id.Kind, id.Group, id.Instance, frames, sha256.Sum256(original), suffix))
-}
 
 func readCatalogIcons(game string) (*gamefiles.Catalog, error) {
 	isIcon := func(id dbpf.ID) bool {
@@ -122,16 +109,9 @@ func catalogSheetEntries(game, cache string, scale int, infer func([]byte) ([]by
 			continue
 		}
 		width := config.Width / 4
-		art, _, err := cachedUIAtlas(cache, id, stock, []int{width, width, width, width}, 4, infer)
+		art, err := preparedUIAtlas(cache, id, stock, []int{width, width, width, width}, scale, atlasOptions{}, infer)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", id, err)
-		}
-
-		if scale == 2 {
-			art, err = projectUIArtwork(stock, art, []int{width, width, width, width}, false)
-			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", id, err)
-			}
 		}
 
 		*destination = append(*destination, dbpf.Entry{ID: id, Data: art})

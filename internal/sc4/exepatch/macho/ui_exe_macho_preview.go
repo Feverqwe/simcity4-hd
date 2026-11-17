@@ -75,6 +75,7 @@ func PatchFeatures(data []byte, options x86.Options, scale int) ([]byte, error) 
 	}
 	if scale == 4 {
 		code, patches = appendMachODisasterBackground(code, patches)
+		code, patches = appendMachOCatalogPatches(code, patches)
 	}
 	if options.RetinaText {
 		if !hasUI {

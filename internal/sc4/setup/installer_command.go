@@ -9,19 +9,21 @@ import (
 	"os"
 
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/exepatch/x86"
+	"github.com/Feverqwe/simcity4-hd/internal/sc4/texturecache"
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/world"
 )
 
 type Event struct {
-	Type     string    `json:"type"`
-	Phase    int       `json:"phase,omitempty"`
-	Text     string    `json:"text,omitempty"`
-	Value    *int      `json:"value,omitempty"`
-	Total    int       `json:"total,omitempty"`
-	Path     string    `json:"path,omitempty"`
-	Field    string    `json:"field,omitempty"`
-	Target   string    `json:"target,omitempty"`
-	Settings *Settings `json:"settings,omitempty"`
+	Type     string                     `json:"type"`
+	Phase    int                        `json:"phase,omitempty"`
+	Text     string                     `json:"text,omitempty"`
+	Value    *int                       `json:"value,omitempty"`
+	Total    int                        `json:"total,omitempty"`
+	Path     string                     `json:"path,omitempty"`
+	Field    string                     `json:"field,omitempty"`
+	Target   string                     `json:"target,omitempty"`
+	Settings *Settings                  `json:"settings,omitempty"`
+	Groups   []texturecache.ExportGroup `json:"groups,omitempty"`
 }
 
 type Settings struct {
@@ -55,9 +57,10 @@ type Command struct {
 	PreparedUI, PreparedWorld                          string
 	Interface, World, SkipIntro, DrawStats, RetinaText bool
 	BuildOptions
-	Categories world.Selection
-	Language   string
-	Explicit   map[string]bool
+	Categories   world.Selection
+	Language     string
+	ExportGroups string
+	Explicit     map[string]bool
 }
 
 type Execute func(context.Context, Command, func(Event), func() error) error
@@ -72,7 +75,7 @@ func Run(args []string, execute Execute) int {
 	command, err := parseCommand(args)
 	if err == nil {
 		ctx, cancel, retry := context.Background(), func() {}, (func() error)(nil)
-		if command.Action != "inspect" {
+		if command.Action != "inspect" && command.Action != "list-textures" {
 			ctx, cancel, retry = operationContext()
 		}
 		defer cancel()
@@ -129,6 +132,7 @@ func parseCommand(args []string) (Command, error) {
 	flags.StringVar(&c.Game, "game", "", "Steam game bundle or installation folder")
 	flags.StringVar(&c.Cache, "cache", "", "texture cache directory")
 	flags.StringVar(&c.Archive, "archive", "", "portable texture archive")
+	flags.StringVar(&c.ExportGroups, "groups", "", "comma-separated texture categories to export")
 	flags.StringVar(&c.Resolution, "resolution", "", "game resolution (WIDTHxHEIGHT, or auto)")
 	flags.IntVar(&c.Scale, "texture-scale", 2, "texture scale (2 or 4)")
 	flags.StringVar(&c.Language, "language", "game", "game language (game or russian)")

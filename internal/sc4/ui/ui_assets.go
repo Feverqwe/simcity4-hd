@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"image"
 	"image/png"
 	"io"
 	"os"
@@ -24,40 +23,6 @@ const mySimPortraitGroup = 0x1abe787d
 
 var chromeInstances = []uint32{
 	0x14215ed0, 0x14215ed1, 0x14215ed2, 0x14215ed3, 0x14215ed4, 0x14215ed5, 0x14215edd,
-}
-
-func cachedUIAtlas(cache string, id dbpf.ID, stock []byte, widths []int, scale int,
-	infer func([]byte) ([]byte, error)) ([]byte, *image.NRGBA, error) {
-	source, err := textures.DecodeRGBA(stock)
-	if err != nil {
-		return nil, nil, err
-	}
-	path := uiCachePath(cache, id, stock, len(widths), scale, hasColorKey(source))
-	art, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) && infer != nil {
-		atlas, inferenceErr := inferAtlasCells(source, widths, scale, infer)
-		if inferenceErr != nil {
-			return nil, nil, inferenceErr
-		}
-		art, err = textures.EncodeRGBA(atlas)
-		if err == nil {
-			err = gamefiles.PublishFile(path, func(w io.Writer) error {
-				_, err := w.Write(art)
-				return err
-			})
-		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	atlas, err := textures.DecodeRGBA(art)
-	if err != nil {
-		return nil, nil, err
-	}
-	if atlas.Rect.Dx() != scale*source.Rect.Dx() || atlas.Rect.Dy() != scale*source.Rect.Dy() {
-		return nil, nil, fmt.Errorf("%s: invalid prepared atlas dimensions", path)
-	}
-	return art, atlas, nil
 }
 
 func catalogChromeEntries(stock *dbpf.Archive, cache string, scale int, infer func([]byte) ([]byte, error), progress upscale.Progress) ([]dbpf.Entry, error) {
@@ -79,23 +44,19 @@ func catalogChromeEntries(stock *dbpf.Archive, cache string, scale int, infer fu
 		if err != nil || config.Width != 292 || config.Height != 53 {
 			return nil, fmt.Errorf("%s: invalid stock catalog frame", id)
 		}
-		art, _, err := cachedUIAtlas(cache, id, data, widths, 4, infer)
+		options := atlasOptions{enlargedKey: scale == 2}
+		art, err := preparedUIAtlas(cache, id, data, widths, scale, options, infer)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", id, err)
+			return nil, err
 		}
-		if scale == 2 {
-			art, err = projectUIArtwork(data, art, widths, true)
-			if err != nil {
-				return nil, err
-			}
-		}
+
 		entries = append(entries, dbpf.Entry{ID: id, Data: art})
 	}
 	report(len(chromeInstances))
 	return entries, nil
 }
 
-func mySimPortraitEntries(stock *dbpf.Archive, cache string, scale int, infer func([]byte) ([]byte, error), progress upscale.Progress) ([]dbpf.Entry, error) {
+func mySimPortraitEntries(stock *dbpf.Archive, cache string, _ int, infer func([]byte) ([]byte, error), progress upscale.Progress) ([]dbpf.Entry, error) {
 	pairs := make(map[uint32]map[uint32][]byte)
 	for _, r := range stock.Records {
 		id := r.ID
@@ -133,34 +94,40 @@ func mySimPortraitEntries(stock *dbpf.Archive, cache string, scale int, infer fu
 			return nil, fmt.Errorf("%08x: stock My Sim portrait pair differs", instance)
 		}
 		id := dbpf.ID{Kind: uiImage, Group: uiids.CatalogFrameGroup, Instance: instance}
-		art, atlas, err := cachedUIAtlas(cache, id, data, []int{36}, scale, infer)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", id, err)
-		}
-		source, err := textures.DecodeRGBA(data)
+		// The picker copies portraits at screen density into fixed-size cells.
+		options := atlasOptions{enlargedKey: true, variant: "portrait-transparency", finish: func(pixels []byte) ([]byte, error) {
+			return validatePortraitKey(data, pixels)
+		}}
+		art, err := preparedUIAtlas(cache, id, data, []int{36}, 2, options, infer)
 		if err != nil {
 			return nil, err
 		}
-		if hasColorKey(source) {
-			for y := range atlas.Rect.Dy() {
-				for x := range atlas.Rect.Dx() {
-					if (source.NRGBAAt(x/scale, y/scale) == uiColorKey) != (atlas.NRGBAAt(x, y) == uiColorKey) {
-						return nil, fmt.Errorf("%s: My Sim portrait transparency key changed", id)
-					}
-				}
-			}
-		}
-		// The picker copies portraits at screen density into fixed-size cells.
-		if scale == 4 {
-			art, err = projectUIArtwork(data, art, []int{36}, true)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", id, err)
-			}
-		}
+
 		entries = append(entries, dbpf.Entry{ID: dbpf.ID{Kind: uiImage, Group: mySimPortraitGroup, Instance: instance}, Data: art}, dbpf.Entry{ID: id, Data: art})
 	}
 	report(len(instances))
 	return entries, nil
+}
+
+func validatePortraitKey(original, prepared []byte) ([]byte, error) {
+	source, err := textures.DecodeRGBA(original)
+	if err != nil {
+		return nil, err
+	}
+	if hasColorKey(source) {
+		atlas, err := textures.DecodeRGBA(prepared)
+		if err != nil {
+			return nil, err
+		}
+		for y := range atlas.Rect.Dy() {
+			for x := range atlas.Rect.Dx() {
+				if (source.NRGBAAt(x/2, y/2) == uiColorKey) != (atlas.NRGBAAt(x, y) == uiColorKey) {
+					return nil, errors.New("My Sim portrait transparency key changed")
+				}
+			}
+		}
+	}
+	return prepared, nil
 }
 
 func RunUIAssets(name string, args []string) (result error) {

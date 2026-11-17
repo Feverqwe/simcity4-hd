@@ -64,6 +64,12 @@ picker and then a separate progress dialog. The backend receives
 `import-textures` or `export-textures` with `-cache PATH` when provided
 and `-archive PATH`. For a product using `detectTarget`, import also
 receives the current game path when provided.
+Set `textureExportSelection` to choose archive contents before selecting the
+export file. Setup calls `list-textures` with the current cache path. The
+backend returns a `texture-groups` event with a `groups` array containing an
+`id`, `label` and `prepared` flag for each available group. Prepared groups
+are initially selected. Export receives the selected IDs in `-groups` as a
+comma-separated list.
 Send one UTF-8 JSON object per line on stdout and diagnostics to stderr.
 
 | Event `type` | Payload and behavior |

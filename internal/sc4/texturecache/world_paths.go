@@ -9,6 +9,19 @@ import (
 
 const NetworkGroup = 0x1abe787d
 const worldCacheVersion = "v2"
+const PreparedFolder = "Textures-prepared"
+
+func InterfaceCache(cache string, scale int) string {
+	density := "Shared"
+	if scale != 1 {
+		density = fmt.Sprintf("x%d", scale)
+	}
+	return filepath.Join(cache, PreparedFolder, "Interface", density)
+}
+
+func worldCache(cache string, scale int) string {
+	return filepath.Join(cache, PreparedFolder, "World", fmt.Sprintf("x%d", scale), upscale.HatCheckpointSHA, worldCacheVersion)
+}
 
 type WorldCategory struct {
 	Name      string
@@ -26,7 +39,7 @@ var WorldCategories = []WorldCategory{
 }
 
 func CategoryCache(cache string, scale int) string {
-	return filepath.Join(cache, "world", upscale.HatCheckpointSHA, fmt.Sprintf("world-fsh-x%d-%s", scale, worldCacheVersion))
+	return filepath.Join(worldCache(cache, scale), "Categories")
 }
 
 func (category WorldCategory) CacheFolder(cache string, scale int) string {
@@ -38,9 +51,9 @@ func (category WorldCategory) CacheFolder(cache string, scale int) string {
 }
 
 func NetworkCache(cache string, scale int) string {
-	return filepath.Join(cache, "world", upscale.HatCheckpointSHA, fmt.Sprintf("network-fsh-x%d-%s", scale, worldCacheVersion))
+	return filepath.Join(worldCache(cache, scale), "Network")
 }
 
 func ModelCache(cache string, scale int) string {
-	return filepath.Join(cache, "models", upscale.HatCheckpointSHA, fmt.Sprintf("fsh-x%d-%s", scale, worldCacheVersion))
+	return filepath.Join(worldCache(cache, scale), "Models")
 }

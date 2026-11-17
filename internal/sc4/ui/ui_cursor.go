@@ -10,7 +10,6 @@ import (
 
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/dbpf"
 	textures "github.com/Feverqwe/simcity4-hd/internal/sc4/texture"
-	"github.com/Feverqwe/simcity4-hd/internal/sc4/upscale"
 )
 
 const cursorResource = 0xaa5c3144
@@ -162,6 +161,22 @@ func decodeCursorBitmap(dib []byte, width, height int) (*image.NRGBA, error) {
 }
 
 func upscaleCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.NRGBA, error) {
+	recipe := fmt.Sprintf("cursor/%dx%d", source.Rect.Dx(), source.Rect.Dy())
+	path := preparedPNGPath(art.cache, scale, recipe, source.Pix)
+	data, err := cachedPreparedPNG(path, func() ([]byte, error) {
+		frame, err := buildCursorFrame(source, art, scale)
+		if err != nil {
+			return nil, err
+		}
+		return textures.EncodeRGBA(frame)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return textures.DecodeRGBA(data)
+}
+
+func buildCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.NRGBA, error) {
 	w, h := source.Rect.Dx(), source.Rect.Dy()
 	opaque := make([]image.Point, 0, w*h)
 	for y := range h {
@@ -199,7 +214,11 @@ func upscaleCursorFrame(source *image.NRGBA, art uiArtwork, scale int) (*image.N
 		return nil, err
 	}
 	// Variants with identical RGB share inference even when their masks differ.
-	_, enlarged, err := art.atlas(upscale.CursorsFolder, dbpf.ID{Kind: cursorResource}, input, []int{w})
+	data, err := renderX4Atlas(art.cache, dbpf.ID{Kind: cursorResource}, input, []int{w}, art.infer)
+	if err != nil {
+		return nil, err
+	}
+	enlarged, err := textures.DecodeRGBA(data)
 	if err != nil {
 		return nil, err
 	}

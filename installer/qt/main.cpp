@@ -278,6 +278,10 @@ QString defaultChoice(const QJsonObject &option, const QDir &assets, const QStri
 
 class TextureTransferDialog : public QDialog {
 public:
+    struct Error {
+        QString text, field;
+    };
+
     TextureTransferDialog(bool exporting, QWidget *parent)
         : QDialog(parent), exporting(exporting) {
         setWindowTitle(exporting ? tr("Export textures") : tr("Import textures"));
@@ -324,8 +328,8 @@ public:
                 handleEvent(pending);
             readDiagnostics();
             logLine("process", QStringLiteral("Texture transfer exited with code %1").arg(code).toUtf8());
-            if (!errorText.isEmpty()) {
-                finish(errorText);
+            if (!transferError.text.isEmpty()) {
+                finish(transferError.text);
             } else if (cancelled && stopped) {
                 QDialog::reject();
             } else if (transferred && code == 0 && exit == QProcess::NormalExit) {
@@ -338,10 +342,11 @@ public:
         });
     }
 
-    void run(const QString &backend, const QStringList &args) {
+    Error run(const QString &backend, const QStringList &args) {
         logLine("process", "Starting " + QJsonDocument(QJsonArray::fromStringList(args)).toJson(QJsonDocument::Compact));
         process.start(backend, args);
         exec();
+        return transferError;
     }
 
 protected:
@@ -379,7 +384,7 @@ private:
         if (type == "textures-transferred") {
             transferred = true;
         } else if (type == "error") {
-            errorText = event.value("text").toString();
+            transferError = {event.value("text").toString(), event.value("field").toString()};
         } else if (type == "stopped") {
             stopped = true;
         } else if (!cancelled && type == "step") {
@@ -408,13 +413,102 @@ private:
 
     QProcess process;
     QByteArray pending;
-    QString errorText;
+    Error transferError;
     QLabel *status, *count;
     QProgressBar *bar;
     QPushButton *cancel, *closeButton;
     const bool exporting;
     bool cancelled = false, stopped = false, transferred = false;
 };
+
+QStringList chooseExportGroups(QWidget *parent, const QString &backend, const QStringList &args) {
+    QDialog dialog(parent);
+    dialog.setWindowTitle(QObject::tr("Export textures"));
+    dialog.setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    dialog.setMinimumWidth(360);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *status = new QLabel(QObject::tr("Checking the texture cache…"));
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    layout->addWidget(status);
+    auto *options = new QVBoxLayout;
+    layout->addLayout(options);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto *next = buttons->button(QDialogButtonBox::Ok);
+    next->setText(QObject::tr("Choose archive…"));
+    next->setEnabled(false);
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    QProcess process;
+#ifdef Q_OS_WIN
+    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+        args->flags |= 0x08000000; // CREATE_NO_WINDOW
+    });
+#endif
+    QList<QPair<QString, QCheckBox *>> choices;
+    const auto update = [&] {
+        next->setEnabled(std::any_of(choices.begin(), choices.end(), [](const auto &choice) {
+            return choice.second->isChecked();
+        }));
+    };
+    const auto scanError = QObject::tr("Could not read the texture cache.");
+    QObject::connect(&process, &QProcess::errorOccurred, &dialog, [&](QProcess::ProcessError error) {
+        logLine("process", process.errorString().toUtf8());
+        if (error == QProcess::FailedToStart)
+            status->setText(scanError);
+    });
+    QObject::connect(&process, &QProcess::finished, &dialog, [&](int code, QProcess::ExitStatus exit) {
+        QJsonArray groups;
+        QString message;
+        for (const auto &line : process.readAllStandardOutput().split('\n')) {
+            if (line.isEmpty())
+                continue;
+            logLine("event", line);
+            const auto event = QJsonDocument::fromJson(line).object();
+            if (event.value("type").toString() == "texture-groups")
+                groups = event.value("groups").toArray();
+            else if (event.value("type").toString() == "error")
+                message = event.value("text").toString();
+        }
+        const auto diagnostics = process.readAllStandardError().trimmed();
+        if (!diagnostics.isEmpty())
+            logLine("backend", diagnostics);
+        if (exit != QProcess::NormalExit || code != 0) {
+            status->setText(message.isEmpty() ? scanError : message);
+            return;
+        }
+        if (groups.isEmpty()) {
+            status->setText(QObject::tr("This cache has no textures to export."));
+            return;
+        }
+        status->setText(QObject::tr("Choose what to include in the archive."));
+        for (const auto &value : groups) {
+            const auto group = value.toObject();
+            auto *box = new QCheckBox(group.value("label").toString());
+            box->setChecked(group.value("prepared").toBool());
+            choices.append({group.value("id").toString(), box});
+            options->addWidget(box);
+            QObject::connect(box, &QCheckBox::toggled, &dialog, update);
+        }
+        update();
+    });
+    logLine("process", "Starting " + QJsonDocument(QJsonArray::fromStringList(args)).toJson(QJsonDocument::Compact));
+    process.start(backend, args);
+    const auto result = dialog.exec();
+    if (process.state() != QProcess::NotRunning) {
+        process.kill();
+        process.waitForFinished();
+    }
+    QStringList selected;
+    if (result == QDialog::Accepted) {
+        for (const auto &choice : choices)
+            if (choice.second->isChecked())
+                selected << choice.first;
+    }
+    return selected;
+}
 
 class Setup : public QDialog {
 public:
@@ -862,6 +956,34 @@ private:
         fieldToFix.clear();
     }
 
+    QWidget *markFieldError(const QString &message, const QString &fieldId) {
+        clearFieldError();
+        fieldToFix = fieldId;
+        QWidget *input = nullptr;
+        if (const auto *field = fieldById(fieldId)) {
+            auto palette = field->edit->palette();
+            const auto base = palette.color(QPalette::Base);
+            palette.setColor(QPalette::Base, QColor((base.red() * 3 + 255) / 4, base.green() * 3 / 4, base.blue() * 3 / 4));
+            field->edit->setPalette(palette);
+            input = field->edit;
+        } else if (resolution && fieldId == resolutionFlag) {
+            input = resolution;
+        }
+        if (input) {
+            input->setAccessibleDescription(message);
+            advanced->show();
+            advanced->setChecked(true);
+        }
+        return input;
+    }
+
+    void focusField(QWidget *input) {
+        advancedPanel->ensureWidgetVisible(input);
+        input->setFocus();
+        if (auto *edit = qobject_cast<QLineEdit *>(input))
+            edit->selectAll();
+    }
+
     QLineEdit *addPath(QFormLayout *layout, const QJsonObject &info, const QString &value) {
         const auto label = info.value("label").toString();
         const auto title = info.value("browse").toString();
@@ -920,11 +1042,11 @@ private:
             return;
         fitHeight();
         inspecting = true;
-        if (completed) {
-            completed = false;
-            details->clear();
-            details->hide();
-        }
+        completed = false;
+        details->clear();
+        details->hide();
+        counter->hide();
+        overallBar->hide();
         installed = reconfigurable = paused = reported = false;
         launcher.clear();
         readyText.clear();
@@ -963,6 +1085,18 @@ private:
     void chooseTextureArchive(bool exporting) {
         if (running || inspecting || paused || (exporting ? !canExportTextures() : completed))
             return;
+        QStringList cacheArgs;
+        if (const auto *cache = fieldById("cache")) {
+            const auto folder = cache->edit->text().trimmed();
+            if (!folder.isEmpty())
+                cacheArgs << "-cache" << QDir::toNativeSeparators(folder);
+        }
+        QStringList groups;
+        if (exporting && config.value("textureExportSelection").toBool()) {
+            groups = chooseExportGroups(this, backend, backendCommand("list-textures") + cacheArgs);
+            if (groups.isEmpty())
+                return;
+        }
         const auto filter = tr("Texture archives (*.zip)");
         auto path = exporting
             ? QFileDialog::getSaveFileName(this, tr("Export textures"),
@@ -976,12 +1110,9 @@ private:
             QMessageBox::warning(this, tr("Export textures"), tr("Choose a new file name for the archive."));
             return;
         }
-        auto args = backendCommand(exporting ? "export-textures" : "import-textures");
-        if (const auto *cache = fieldById("cache")) {
-            const auto folder = cache->edit->text().trimmed();
-            if (!folder.isEmpty())
-                args << "-cache" << QDir::toNativeSeparators(folder);
-        }
+        auto args = backendCommand(exporting ? "export-textures" : "import-textures") + cacheArgs;
+        if (!groups.isEmpty())
+            args << "-groups" << groups.join(',');
         if (!exporting && config.value("detectTarget").toBool()) {
             if (const auto *game = fieldById("game")) {
                 const auto path = game->edit->text().trimmed();
@@ -991,7 +1122,11 @@ private:
         }
         args << "-archive" << QDir::toNativeSeparators(path);
         TextureTransferDialog dialog(exporting, this);
-        dialog.run(backend, args);
+        const auto error = dialog.run(backend, args);
+        if (!error.field.isEmpty()) {
+            if (auto *input = markFieldError(error.text, error.field))
+                focusField(input);
+        }
     }
 
     void selectResolution(const QString &size) {
@@ -1187,13 +1322,11 @@ private:
         } else if (type == "handoff" && running) {
             completed = reported = true;
             handoffFolder = event.value("path").toString();
-            appendDetails(text.toUtf8() + '\n');
             status->setText(text);
         } else if (type == "installed") {
             if (running) {
                 completed = true;
                 const auto message = operation == "configure" ? tr("Changes applied.") : tr("Installation complete.");
-                appendDetails(message.toUtf8() + '\n');
                 status->setText(message);
             }
             launcher = event.value("path").toString();
@@ -1220,7 +1353,6 @@ private:
             installed = reconfigurable = false;
             reported = true;
             completed = true;
-            appendDetails(tr("The mod was removed.").toUtf8() + '\n');
             status->setText(tr("The mod was removed."));
         } else if (type == "recovered" && running) {
             recovered = true;
@@ -1254,8 +1386,9 @@ private:
     }
 
     void askResourceRetry(const QString &message) {
-        appendDetails(message.toUtf8() + '\n');
         bar->hide();
+        counter->hide();
+        status->setText(tr("Download interrupted."));
         auto *alert = new QMessageBox(QMessageBox::Warning, tr("Download failed"), message,
             QMessageBox::Retry | QMessageBox::Cancel, this);
         alert->setTextFormat(Qt::PlainText);
@@ -1276,51 +1409,28 @@ private:
     void showError(const QString &message, const QString &fieldId = {}) {
         fitHeight();
         logLine("error", message.toUtf8());
-        appendDetails(message.toUtf8() + '\n');
-        details->show();
         reported = true;
         paused = false;
         completed = false;
+        counter->hide();
         if (!installed || reconfigurable) {
             status->setText(tr("Setup could not continue."));
             if (!reconfigurable)
                 primary->setText(tr("Install"));
         }
 
-        clearFieldError();
-        fieldToFix = fieldId;
-        const auto *field = fieldById(fieldToFix);
-        const bool fixResolution = resolution && fieldToFix == resolutionFlag;
-        if (field) {
-            auto palette = field->edit->palette();
-            const auto base = palette.color(QPalette::Base);
-            palette.setColor(QPalette::Base, QColor((base.red() * 3 + 255) / 4, base.green() * 3 / 4, base.blue() * 3 / 4));
-            field->edit->setPalette(palette);
-            field->edit->setAccessibleDescription(message);
-        }
-        if (fixResolution)
-            resolution->setAccessibleDescription(message);
-        if (field || fixResolution) {
-            advanced->show();
-            advanced->setChecked(true);
-        }
-
+        auto *input = markFieldError(message, fieldId);
+        const bool showDetails = !inspecting && !input;
+        if (showDetails)
+            appendDetails(message.toUtf8() + '\n');
+        details->setVisible(showDetails);
         const bool canRetry = running && fieldId.isEmpty();
         const auto buttons = canRetry ? QMessageBox::Retry | QMessageBox::Cancel : QMessageBox::StandardButtons(QMessageBox::Ok);
         auto *alert = new QMessageBox(QMessageBox::Critical, tr("Setup error"), message, buttons, this);
         alert->setTextFormat(Qt::PlainText);
         alert->setAttribute(Qt::WA_DeleteOnClose);
-        if (field) {
-            connect(alert, &QMessageBox::finished, this, [this, edit = field->edit] {
-                advancedPanel->ensureWidgetVisible(edit);
-                edit->setFocus();
-                edit->selectAll();
-            });
-        } else if (fixResolution) {
-            connect(alert, &QMessageBox::finished, this, [this] {
-                advancedPanel->ensureWidgetVisible(resolution);
-                resolution->setFocus();
-            });
+        if (input) {
+            connect(alert, &QMessageBox::finished, this, [this, input] { focusField(input); });
         } else if (canRetry) {
             connect(alert, &QMessageBox::finished, this, [this](int result) {
                 if (result != QMessageBox::Retry)
@@ -1368,6 +1478,7 @@ private:
         exportTextures->setVisible(canExportTextures());
         if (completed) {
             counter->hide();
+            details->hide();
             advanced->setChecked(false);
             advanced->hide();
             closeInstalled->show();
@@ -1399,8 +1510,6 @@ private:
                     }
                 }
             }
-            if (reported && !details->document()->isEmpty())
-                details->show();
         }
         auto *defaultAction = play->isVisibleTo(this) ? play : primary;
         defaultAction->setDefault(true);

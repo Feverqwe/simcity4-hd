@@ -64,10 +64,9 @@ func (build TextureBuild) EstimateSpace(ctx context.Context) (packageBytes, cach
 		return nil
 	}
 	if build.Interface {
-		folders := []string{filepath.Join(cache, upscale.InterfaceAtlasFolder), filepath.Join(cache, upscale.CatalogFramesFolder),
-			filepath.Join(cache, upscale.PortraitsFolder)}
-		if build.Features.HdCursors {
-			folders = append(folders, filepath.Join(cache, upscale.CursorsFolder))
+		folders := []string{texturecache.InterfaceCache(cache, 1), texturecache.InterfaceCache(cache, 2)}
+		if build.Scale == 4 {
+			folders = append(folders, texturecache.InterfaceCache(cache, 4))
 		}
 		if err := reserve(512*mib, 512*mib, folders...); err != nil {
 			return 0, 0, err

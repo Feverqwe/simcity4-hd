@@ -7,11 +7,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/texturecache"
 )
 
 func TransferTextures(ctx context.Context, command Command, emit func(Event)) error {
+	if command.Action == "list-textures" {
+		groups, err := texturecache.AvailableExportGroups(ctx, command.Cache)
+		if err != nil {
+			return FieldError("cache", err)
+		}
+		emit(Event{Type: "texture-groups", Groups: groups})
+		return nil
+	}
 	if !filepath.IsAbs(command.Archive) {
 		return errors.New("Choose a texture archive file.")
 	}
@@ -41,7 +50,11 @@ func TransferTextures(ctx context.Context, command Command, emit func(Event)) er
 	}
 	if exporting {
 		emit(Event{Type: "step", Text: "Exporting textures"})
-		err = texturecache.ExportTextureArchive(ctx, cache, command.Archive, progress)
+		var groups []string
+		if command.ExportGroups != "" {
+			groups = strings.Split(command.ExportGroups, ",")
+		}
+		err = texturecache.ExportTextureArchive(ctx, cache, command.Archive, groups, progress)
 	} else {
 		emit(Event{Type: "step", Text: "Importing textures"})
 		err = texturecache.ImportTextureArchive(ctx, cache, command.Archive, progress)

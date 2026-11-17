@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	gamefiles "github.com/Feverqwe/simcity4-hd/internal/sc4/game"
@@ -19,26 +21,46 @@ import (
 	"github.com/Feverqwe/simcity4-hd/internal/sc4/upscale"
 )
 
-const TextureArchiveRoot = "SimCity4UHD-Textures-v1/"
+const TextureArchiveRoot = "SimCity4UHD-Textures-v2/"
 
-var uiAtlasName = regexp.MustCompile(`^(?:[0-9a-f]{8}-){3}[1-9][0-9]*-[0-9a-f]{64}(?:-keyed)?-x4\.png$`)
+type ExportGroup struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Prepared bool   `json:"prepared"`
+}
 
-var textureCacheFolders = archiveTextureFolders()
+var exportGroups = []ExportGroup{
+	{"interface-x2", "Interface ×2", true},
+	{"interface-x4", "Interface ×4", true},
+	{"interface-common", "Shared interface textures", true},
+	{"world-x2", "World ×2", true},
+	{"world-x4", "World ×4", true},
+	{"original", "Original upscaled PNGs", false},
+}
 
-func archiveTextureFolders() map[string]*regexp.Regexp {
-	folders := map[string]*regexp.Regexp{
-		upscale.InferenceCacheFolder: regexp.MustCompile(`^[0-9a-f]{64}\.png$`),
-		upscale.InterfaceAtlasFolder: uiAtlasName,
-		upscale.CatalogFramesFolder:  uiAtlasName,
-		upscale.PortraitsFolder:      uiAtlasName,
-		upscale.CursorsFolder:        uiAtlasName,
+type archiveFolder struct {
+	path, group string
+	pattern     *regexp.Regexp
+}
+
+var archiveFolders = textureArchiveFolders()
+
+func textureArchiveFolders() []archiveFolder {
+	var folders []archiveFolder
+	add := func(path, group string, pattern *regexp.Regexp) {
+		folders = append(folders, archiveFolder{filepath.ToSlash(path), group, pattern})
 	}
+	pngName := regexp.MustCompile(`^[0-9a-f]{64}\.png$`)
 	fshName := regexp.MustCompile(`^[0-9a-f]{64}\.fsh$`)
+	add(upscale.InferenceCacheFolder, "original", pngName)
+	add(InterfaceCache("", 1), "interface-common", pngName)
 	for _, scale := range []int{2, 4} {
-		folders[filepath.ToSlash(ModelCache("", scale))] = fshName
-		folders[filepath.ToSlash(NetworkCache("", scale))] = fshName
+		worldGroup := fmt.Sprintf("world-x%d", scale)
+		add(InterfaceCache("", scale), fmt.Sprintf("interface-x%d", scale), pngName)
+		add(ModelCache("", scale), worldGroup, fshName)
+		add(NetworkCache("", scale), worldGroup, fshName)
 		for _, category := range WorldCategories {
-			folders[filepath.ToSlash(category.CacheFolder("", scale))] = fshName
+			add(category.CacheFolder("", scale), worldGroup, fshName)
 		}
 	}
 	return folders
@@ -49,12 +71,68 @@ func textureArchiveMember(name string) bool {
 	if !ok {
 		return false
 	}
-	lastSlash := strings.LastIndexByte(relative, '/')
-	if lastSlash < 0 {
-		return false
+	parent, base, ok := cutArchiveFile(relative)
+	if ok {
+		for _, folder := range archiveFolders {
+			if folder.path == parent && folder.pattern.MatchString(base) {
+				return true
+			}
+		}
 	}
-	pattern := textureCacheFolders[relative[:lastSlash]]
-	return pattern != nil && pattern.MatchString(relative[lastSlash+1:])
+	return false
+}
+
+func cutArchiveFile(name string) (string, string, bool) {
+	lastSlash := strings.LastIndexByte(name, '/')
+	if lastSlash < 0 {
+		return "", "", false
+	}
+	return name[:lastSlash], name[lastSlash+1:], true
+}
+
+func AvailableExportGroups(ctx context.Context, cache string) ([]ExportGroup, error) {
+	root, err := os.OpenRoot(cache)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	available := make(map[string]bool)
+	for _, folder := range archiveFolders {
+		if available[folder.group] {
+			continue
+		}
+		entries, err := archiveEntries(ctx, root, folder)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && folder.pattern.MatchString(entry.Name()) {
+				available[folder.group] = true
+				break
+			}
+		}
+	}
+	var result []ExportGroup
+	for _, group := range exportGroups {
+		if available[group.ID] {
+			result = append(result, group)
+		}
+	}
+	return result, nil
+}
+
+func archiveEntries(ctx context.Context, root *os.Root, folder archiveFolder) ([]fs.DirEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	entries, err := fs.ReadDir(root.FS(), folder.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return entries, err
 }
 
 type ArchiveProgress struct {
@@ -69,7 +147,7 @@ func (p ArchiveProgress) report(done, total int) {
 	}
 }
 
-func ExportTextureArchive(ctx context.Context, cache, archive string, progress ArchiveProgress) error {
+func ExportTextureArchive(ctx context.Context, cache, archive string, groups []string, progress ArchiveProgress) error {
 	root, err := os.OpenRoot(cache)
 	if err != nil {
 		return err
@@ -77,12 +155,23 @@ func ExportTextureArchive(ctx context.Context, cache, archive string, progress A
 	defer root.Close()
 
 	var files []string
+	selected := make(map[string]bool)
+	for _, group := range exportGroups {
+		if len(groups) == 0 && group.Prepared || slices.Contains(groups, group.ID) {
+			selected[group.ID] = true
+		}
+	}
+	for _, group := range groups {
+		if !selected[group] {
+			return fmt.Errorf("Unknown texture export category %q.", group)
+		}
+	}
 	var bytesNeeded uint64
-	for folder, pattern := range textureCacheFolders {
-		entries, err := os.ReadDir(filepath.Join(cache, folder))
-		if errors.Is(err, os.ErrNotExist) {
+	for _, folder := range archiveFolders {
+		if !selected[folder.group] {
 			continue
 		}
+		entries, err := archiveEntries(ctx, root, folder)
 		if err != nil {
 			return err
 		}
@@ -90,14 +179,14 @@ func ExportTextureArchive(ctx context.Context, cache, archive string, progress A
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if !entry.Type().IsRegular() || !pattern.MatchString(entry.Name()) {
+			name := folder.path + "/" + entry.Name()
+			if !entry.Type().IsRegular() || !folder.pattern.MatchString(entry.Name()) {
 				continue
 			}
 			info, err := entry.Info()
 			if err != nil {
 				return err
 			}
-			name := folder + "/" + entry.Name()
 			files = append(files, name)
 			bytesNeeded += uint64(info.Size()) + uint64(2*len(TextureArchiveRoot+name)) + 256
 		}

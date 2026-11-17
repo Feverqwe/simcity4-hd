@@ -10,7 +10,7 @@ SimCity 4 UHD brings 4K display support, a larger interface, and sharper artwork
 
 The UHD interface doubles the size of most controls compared with the original game at the same resolution. Both texture options use the same enlarged layout. The ×2 and ×4 settings control the detail of the artwork.
 
-- **City controls.** Larger buttons, icons, and labels in God, Mayor, and My Sims modes, from construction and transport menus to Disasters, simulation speed, and Help. Button states fit their panels, and the animated 3D advisor portraits are sharper.
+- **City controls.** Larger buttons, icons, and labels in God, Mayor, and My Sims modes, from construction and transport menus to Disasters, simulation speed, and Help. Button states fit their panels, and the animated 3D advisor portraits are sharper. Catalog icons and frames use the selected texture density at the same on-screen size.
 - **Graphs and Data Views.** Larger plots and labels, thicker graph lines, and clearer legends. Data Views maps show terrain and water beneath the overlays. Mayor Rating arrows and City Opinion Polls meters retain their outlines.
 - **Budgets and ordinances.** Larger ledgers, funding sliders, Ordinance details, and Neighbor Deals. Amounts stay readable when values and lists refresh. Numeric fields accept your locale’s decimal separator.
 - **Queries, messages, and tutorials.** Building and route queries give more room to text, icons, and meters. News, advisor messages, tutorials, and tooltips wrap within their panels, with scrollbars that fit the larger layout. On Windows, the mod also fixes crashes involving the city HUD, certain menus, and building queries.

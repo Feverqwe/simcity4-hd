@@ -93,3 +93,15 @@ var MacSnapshotCode []byte
 
 //go:embed ui_panel_fit.x86_64
 var MacPanelFitCode []byte
+
+//go:embed ui_catalog_paint.x86_64
+var MacCatalogPaint []byte
+
+//go:embed ui_catalog_tile.x86_64
+var MacCatalogTile []byte
+
+//go:embed ui_catalog_height.x86_64
+var MacCatalogHeight []byte
+
+//go:embed ui_catalog_button.x86_64
+var MacCatalogButton []byte
